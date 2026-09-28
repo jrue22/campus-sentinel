@@ -83,11 +83,11 @@ function buildExamples() {
 }
 
 document.getElementById("go").addEventListener("click", async () => {
-  const c = window.FIREBASE_CONFIG;
-  if (!window.firebase || !c || String(c.projectId).startsWith("PASTE")) {
-    log("firebase-config.js still has placeholder values. Paste your project settings first (see README).");
-    return;
-  }
+  let c = window.FIREBASE_CONFIG;
+  if (!c) { try { c = firebaseConfig; } catch (e) { c = null; } }
+  if (!window.firebase) { log("The Firebase library didn't load. Check your connection or content blocker and reload."); return; }
+  if (!c) { log("firebase-config.js is missing or has a typo. It must start with window.FIREBASE_CONFIG = {"); return; }
+  if (String(c.projectId).startsWith("PASTE")) { log("firebase-config.js still has placeholder values. Upload your edited copy."); return; }
   const btn = document.getElementById("go");
   btn.disabled = true;
   try {
