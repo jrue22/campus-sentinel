@@ -1,0 +1,1143 @@
+<!doctype html>
+<html lang="en">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1, viewport-fit=cover">
+<title>Campus Sentinel</title>
+<meta name="description" content="Anonymous symptom reporting and live cluster dashboard for campus syndromic surveillance.">
+<!-- These tags make "Add to Home Screen" on iPhone behave like an app -->
+<meta name="apple-mobile-web-app-capable" content="yes">
+<meta name="mobile-web-app-capable" content="yes">
+<meta name="apple-mobile-web-app-title" content="Sentinel">
+<meta name="apple-mobile-web-app-status-bar-style" content="default">
+<meta name="theme-color" content="#8C1D40">
+<link rel="apple-touch-icon" href="icon-180.png">
+<link rel="icon" type="image/png" href="icon-192.png">
+<link rel="manifest" href="manifest.webmanifest">
+<!--
+  CAMPUS SENTINEL — syndromic surveillance for a university campus network
+  -----------------------------------------------------------------------
+  Written in plain HTML + CSS + JavaScript. No frameworks, no build step.
+  The file has three parts:
+    1. <style>   how it looks (colors are "tokens" defined once at the top)
+    2. HTML      the three screens: Report, Dashboard, Method
+    3. <script>  the logic, split into numbered sections:
+                 1 Config (campuses, residences, symptoms)
+                 2 Classifier (symptoms -> syndrome + pathogen category)
+                 3 Cluster detection (who is sick, where, how many)
+                 4 Data storage (Firebase Firestore database)
+                 5 Survey form
+                 6 Dashboard rendering
+                 7 Startup
+-->
+<link rel="preconnect" href="https://fonts.googleapis.com">
+<link rel="preconnect" href="https://fonts.gstatic.com" crossorigin>
+<link rel="stylesheet" href="https://fonts.googleapis.com/css2?family=Archivo:wdth,wght@75..100,500..800&family=IBM+Plex+Sans:wght@400;500;600&family=IBM+Plex+Mono:wght@400;500&display=swap">
+<style>
+  /* ---------- Design tokens (light theme) ---------- */
+  :root {
+    --bg: #F6F4F5;
+    --surface: #FFFFFF;
+    --surface-2: #EFEAEC;
+    --ink: #1F1A1C;
+    --ink-2: #5E5459;
+    --line: #DDD5D9;
+    --accent: #8C1D40;       /* maroon */
+    --accent-ink: #FFFFFF;
+    --gold: #FFC627;
+    --gold-ink: #3A2C00;
+    --alert: #B8330C;  --alert-bg: #FCEBE4;
+    --watch: #8A5D00;  --watch-bg: #FFF3D1;
+    --ok: #2F7A4F;     --ok-bg: #E4F3EA;
+    /* one color per syndrome, used in chart, chips and heat map */
+    --s-ili: #6B46C1;
+    --s-resp: #2B6CB0;
+    --s-gi: #0F766E;
+    --s-skin: #B7791F;
+    --s-neuro: #C53030;
+    --s-other: #8A8286;
+    --f-display: "Archivo", "Arial Narrow", system-ui, sans-serif;
+    --f-body: "IBM Plex Sans", system-ui, -apple-system, "Segoe UI", sans-serif;
+    --f-mono: "IBM Plex Mono", ui-monospace, "SF Mono", Menlo, monospace;
+  }
+  /* ---------- Dark theme: only the tokens change ---------- */
+  @media (prefers-color-scheme: dark) {
+    :root:not([data-theme="light"]) {
+      color-scheme: dark;
+      --bg: #151113; --surface: #1F1A1C; --surface-2: #2A2326; --ink: #F2EDEF; --ink-2: #B5ABB0; --line: #3B3337;
+      --accent: #E57A99; --accent-ink: #1A0A10; --gold: #FFC627; --gold-ink: #3A2C00;
+      --alert: #FF8B66; --alert-bg: #3B1F16; --watch: #F2C14E; --watch-bg: #372D12; --ok: #71CF99; --ok-bg: #173226;
+      --s-ili: #A78BFA; --s-resp: #63A4E8; --s-gi: #2DD4BF; --s-skin: #E0B04F; --s-neuro: #F87171; --s-other: #A0979B;
+    }
+  }
+  :root[data-theme="dark"] {
+    color-scheme: dark;
+    --bg: #151113; --surface: #1F1A1C; --surface-2: #2A2326; --ink: #F2EDEF; --ink-2: #B5ABB0; --line: #3B3337;
+    --accent: #E57A99; --accent-ink: #1A0A10; --gold: #FFC627; --gold-ink: #3A2C00;
+    --alert: #FF8B66; --alert-bg: #3B1F16; --watch: #F2C14E; --watch-bg: #372D12; --ok: #71CF99; --ok-bg: #173226;
+    --s-ili: #A78BFA; --s-resp: #63A4E8; --s-gi: #2DD4BF; --s-skin: #E0B04F; --s-neuro: #F87171; --s-other: #A0979B;
+  }
+
+  /* ---------- Base ---------- */
+  * { box-sizing: border-box; }
+  html { -webkit-text-size-adjust: 100%; }
+  [hidden] { display: none !important; }
+  img { max-width: 100%; }
+  body {
+    background: var(--bg); color: var(--ink);
+    font: 15px/1.55 var(--f-body);
+    margin: 0;
+    padding: env(safe-area-inset-top, 0px) 16px calc(84px + env(safe-area-inset-bottom, 0px));
+  }
+  .wrap { max-width: 980px; margin: 0 auto; }
+  h1, h2, h3 { font-family: var(--f-display); font-stretch: 85%; line-height: 1.15; margin: 0; text-wrap: balance; }
+  h2 { font-size: 1.5rem; font-weight: 800; }
+  h3 { font-size: 1.05rem; font-weight: 700; }
+  p { margin: 0; }
+  .muted { color: var(--ink-2); }
+  .mono { font-family: var(--f-mono); font-variant-numeric: tabular-nums; }
+  .eyebrow { font: 500 0.72rem/1.2 var(--f-mono); letter-spacing: 0.08em; text-transform: uppercase; color: var(--ink-2); }
+  button, input, select { font: inherit; color: inherit; }
+  :focus-visible { outline: 2px solid var(--accent); outline-offset: 2px; }
+
+  /* ---------- App header ---------- */
+  .appbar { display: flex; align-items: flex-end; justify-content: space-between; gap: 12px; flex-wrap: wrap; padding-block: 20px 14px; border-bottom: 1px solid var(--line); }
+  .brand { display: flex; align-items: center; gap: 12px; }
+  .mark { width: 40px; height: 40px; border-radius: 10px; background: var(--accent); display: grid; place-items: center; flex: none; }
+  .mark svg { width: 24px; height: 24px; }
+  .brand h1 { font-size: 1.6rem; font-weight: 800; letter-spacing: -0.01em; }
+  .brand .sub { font-size: 0.82rem; color: var(--ink-2); }
+  .tag { font: 500 0.72rem/1 var(--f-mono); background: var(--gold); color: var(--gold-ink); padding: 6px 8px; border-radius: 4px; }
+
+  /* ---------- Bottom tab bar (feels native when saved to the iOS home screen) ---------- */
+  .tabbar {
+    position: fixed; left: 0; right: 0; bottom: 0; z-index: 10;
+    background: var(--surface); border-top: 1px solid var(--line);
+    padding: 6px 12px calc(6px + env(safe-area-inset-bottom, 0px));
+  }
+  .tabbar .inner { max-width: 520px; margin: 0 auto; display: grid; grid-template-columns: repeat(3, 1fr); gap: 4px; }
+  .tabbar button {
+    background: none; border: 0; padding: 6px 4px; border-radius: 8px; cursor: pointer;
+    display: grid; justify-items: center; gap: 2px; font-size: 0.75rem; font-weight: 500; color: var(--ink-2);
+  }
+  .tabbar button svg { width: 22px; height: 22px; }
+  .tabbar button[aria-selected="true"] { color: var(--accent); background: var(--surface-2); }
+
+  main { padding-block: 22px; display: grid; gap: 22px; }
+  .screen { display: grid; gap: 22px; }
+  .banner { padding: 10px 12px; border-radius: 8px; background: var(--watch-bg); color: var(--ink); font-size: 0.88rem; border: 1px solid var(--line); }
+
+  /* ---------- Survey form ---------- */
+  .form { display: grid; gap: 18px; }
+  fieldset { border: 1px solid var(--line); background: var(--surface); border-radius: 12px; padding: 16px; margin: 0; display: grid; gap: 12px; min-width: 0; }
+  legend { font: 700 1.02rem/1.2 var(--f-display); font-stretch: 85%; padding: 0 6px; }
+  .hint { font-size: 0.84rem; color: var(--ink-2); }
+  .grid2 { display: grid; grid-template-columns: repeat(auto-fit, minmax(220px, 1fr)); gap: 12px; }
+  label.field { display: grid; gap: 4px; font-size: 0.88rem; font-weight: 500; }
+  select, input[type="date"], input[type="number"] {
+    width: 100%; padding: 10px 12px; border: 1px solid var(--line); border-radius: 8px; background: var(--bg); min-height: 44px;
+  }
+  .chips { display: flex; flex-wrap: wrap; gap: 8px; }
+  .chip-toggle { position: relative; }
+  .chip-toggle input { position: absolute; opacity: 0; inset: 0; margin: 0; cursor: pointer; }
+  .chip-toggle span {
+    display: inline-block; padding: 8px 12px; border: 1px solid var(--line); border-radius: 999px; font-size: 0.88rem;
+    background: var(--bg); user-select: none; min-height: 38px;
+  }
+  .chip-toggle input:checked + span { background: var(--accent); color: var(--accent-ink); border-color: var(--accent); }
+  .chip-toggle input:focus-visible + span { outline: 2px solid var(--accent); outline-offset: 2px; }
+  .sym-group { display: grid; gap: 6px; }
+  .sym-group .eyebrow { margin-top: 2px; }
+  .seg { display: grid; grid-template-columns: repeat(3, 1fr); gap: 6px; }
+  .seg .chip-toggle span { width: 100%; text-align: center; border-radius: 8px; }
+  .check { display: flex; gap: 10px; align-items: flex-start; font-size: 0.9rem; }
+  .check input { width: 20px; height: 20px; margin-top: 2px; accent-color: var(--accent); flex: none; }
+  .btn {
+    background: var(--accent); color: var(--accent-ink); border: 0; border-radius: 10px; padding: 14px 18px;
+    font-weight: 600; font-size: 1rem; cursor: pointer; min-height: 48px;
+  }
+  .btn[disabled] { opacity: 0.5; cursor: not-allowed; }
+  .btn.ghost { background: var(--surface-2); color: var(--ink); }
+  .err { color: var(--alert); font-size: 0.88rem; }
+
+  /* Result card shown after submitting */
+  .result { background: var(--surface); border: 1px solid var(--line); border-radius: 12px; padding: 18px; display: grid; gap: 12px; }
+  .result .big { font: 800 1.5rem/1.15 var(--f-display); font-stretch: 85%; }
+  .urgent { background: var(--alert-bg); border-left: 4px solid var(--alert); padding: 10px 12px; border-radius: 6px; font-size: 0.9rem; }
+
+  /* ---------- Dashboard ---------- */
+  .dash-head { display: flex; justify-content: space-between; align-items: flex-end; gap: 12px; flex-wrap: wrap; }
+  .live { display: inline-flex; align-items: center; gap: 6px; font: 500 0.78rem var(--f-mono); color: var(--ink-2); }
+  .live i { width: 8px; height: 8px; border-radius: 50%; background: var(--ok); display: inline-block; }
+  .live.off i { background: var(--ink-2); }
+  .kpis { display: grid; grid-template-columns: repeat(auto-fit, minmax(150px, 1fr)); gap: 1px; background: var(--line); border: 1px solid var(--line); border-radius: 12px; overflow: hidden; }
+  .kpi { background: var(--surface); padding: 14px 16px; display: grid; gap: 4px; align-content: start; }
+  .kpi .num { font: 700 1.9rem/1 var(--f-display); font-variant-numeric: tabular-nums; }
+  .kpi .delta { font: 500 0.8rem var(--f-mono); }
+  .up { color: var(--alert); } .down { color: var(--ok); }
+
+  .alerts { display: grid; gap: 12px; }
+  .alert {
+    background: var(--surface); border: 1px solid var(--line); border-left-width: 5px; border-radius: 10px;
+    padding: 14px 16px; display: grid; gap: 8px;
+  }
+  .alert.level-alert { border-left-color: var(--alert); }
+  .alert.level-watch { border-left-color: var(--watch); }
+  .alert-top { display: flex; justify-content: space-between; gap: 10px; flex-wrap: wrap; align-items: baseline; }
+  .pill { font: 600 0.7rem/1 var(--f-mono); letter-spacing: 0.06em; text-transform: uppercase; padding: 5px 8px; border-radius: 999px; white-space: nowrap; }
+  .pill.alert-p { background: var(--alert-bg); color: var(--alert); }
+  .pill.watch-p { background: var(--watch-bg); color: var(--watch); }
+  .pill.ok-p { background: var(--ok-bg); color: var(--ok); }
+  .lookfor { background: var(--surface-2); border-radius: 8px; padding: 10px 12px; font-size: 0.9rem; }
+  .lookfor b { font-weight: 600; }
+  .meta { display: flex; gap: 14px; flex-wrap: wrap; font: 400 0.8rem var(--f-mono); color: var(--ink-2); }
+  .quiet { background: var(--ok-bg); border-radius: 10px; padding: 14px 16px; }
+
+  .panel { background: var(--surface); border: 1px solid var(--line); border-radius: 12px; padding: 16px; display: grid; gap: 12px; min-width: 0; }
+  .panel-head { display: flex; justify-content: space-between; align-items: baseline; gap: 10px; flex-wrap: wrap; }
+  .chart-box { overflow-x: auto; }
+  .chart-box svg { display: block; width: 100%; min-width: 520px; height: auto; }
+  .legend { display: flex; flex-wrap: wrap; gap: 6px 14px; font-size: 0.8rem; color: var(--ink-2); }
+  .legend span { display: inline-flex; align-items: center; gap: 6px; }
+  .sw { width: 10px; height: 10px; border-radius: 2px; display: inline-block; flex: none; }
+
+  .table-box { overflow-x: auto; }
+  table { border-collapse: collapse; width: 100%; font-size: 0.86rem; }
+  th, td { padding: 8px 10px; text-align: left; border-bottom: 1px solid var(--line); vertical-align: top; }
+  th { font: 500 0.7rem var(--f-mono); letter-spacing: 0.06em; text-transform: uppercase; color: var(--ink-2); white-space: nowrap; }
+  td.n { text-align: center; font-family: var(--f-mono); font-variant-numeric: tabular-nums; }
+  .syn { display: inline-flex; align-items: center; gap: 6px; white-space: nowrap; }
+  .two-col { display: grid; grid-template-columns: repeat(auto-fit, minmax(320px, 1fr)); gap: 16px; }
+  .toolbar { display: flex; gap: 12px; align-items: center; flex-wrap: wrap; font-size: 0.86rem; }
+
+  .qr-panel { display: flex; gap: 16px; align-items: center; flex-wrap: wrap; }
+  .qr { background: #FFFFFF; padding: 10px; border-radius: 10px; line-height: 0; flex: none; }
+  .qr img, .qr canvas { width: 140px; height: 140px; }
+  .url { font: 500 0.85rem var(--f-mono); word-break: break-all; }
+
+  /* ---------- Method page ---------- */
+  .prose { display: grid; gap: 12px; max-width: 68ch; }
+  .steps { display: grid; gap: 10px; padding-left: 1.2em; margin: 0; }
+  .src { font-size: 0.8rem; min-width: 14ch; }
+  .pts { font-family: var(--f-mono); font-size: 0.8rem; white-space: nowrap; }
+  footer { font-size: 0.8rem; color: var(--ink-2); padding-block: 8px 0; max-width: 68ch; }
+
+  @media (prefers-reduced-motion: no-preference) {
+    .alert, .result { animation: rise .3s ease-out; }
+    @keyframes rise { from { transform: translateY(4px); } to { transform: none; } }
+  }
+</style>
+</head>
+<body>
+
+<div class="wrap">
+  <header class="appbar">
+    <div class="brand">
+      <div class="mark" aria-hidden="true">
+        <!-- a simple pulse line, drawn by hand -->
+        <svg viewBox="0 0 24 24" fill="none" stroke="#FFC627" stroke-width="2.2" stroke-linecap="round" stroke-linejoin="round"><path d="M2 13h4l2-6 4 12 3-9 2 3h5"/></svg>
+      </div>
+      <div>
+        <h1>Campus Sentinel</h1>
+        <p class="sub"><span id="mmwr" class="mono">MMWR week</span> · symptom surveillance across the ASU campus network</p>
+      </div>
+    </div>
+    <span class="tag">Class project · not an official ASU service</span>
+  </header>
+
+  <main>
+    <div id="modeBanner" class="banner" hidden></div>
+
+    <!-- ===================== SCREEN 1: REPORT SYMPTOMS ===================== -->
+    <section class="screen" id="screen-report" data-screen="report">
+      <div class="prose">
+        <h2>Feeling sick? Report it anonymously.</h2>
+        <p class="muted">Takes about a minute. We never ask for your name, email, or student ID. Your answers help spot outbreaks early.</p>
+      </div>
+
+      <form id="survey" class="form" novalidate>
+        <fieldset>
+          <legend>Where you study and live</legend>
+          <div class="field">
+            <span class="eyebrow">Campuses you attend (check all)</span>
+            <div class="chips" id="campusChips"></div>
+          </div>
+          <label class="field">Where do you live?
+            <select id="residence" required></select>
+          </label>
+        </fieldset>
+
+        <fieldset>
+          <legend>When it started</legend>
+          <div class="grid2">
+            <label class="field">Date symptoms started
+              <input type="date" id="onset" required>
+            </label>
+            <label class="field">Highest temperature, °F (optional)
+              <input type="number" id="temp" inputmode="decimal" min="95" max="108" step="0.1" placeholder="e.g. 101.2">
+            </label>
+          </div>
+          <p class="hint" id="daysIllHint">You have been ill for 1 day.</p>
+        </fieldset>
+
+        <fieldset>
+          <legend>Symptoms</legend>
+          <p class="hint">Tap every symptom you have had since you got sick.</p>
+          <div id="symptomGroups" class="form" style="gap:12px"></div>
+        </fieldset>
+
+        <fieldset>
+          <legend>How bad and who else</legend>
+          <div class="field">
+            <span class="eyebrow">How sick do you feel?</span>
+            <div class="seg" id="severity">
+              <label class="chip-toggle"><input type="radio" name="severity" value="mild" id="sev-mild" checked><span>Mild</span></label>
+              <label class="chip-toggle"><input type="radio" name="severity" value="moderate" id="sev-mod"><span>Moderate</span></label>
+              <label class="chip-toggle"><input type="radio" name="severity" value="severe" id="sev-sev"><span>Can't do daily tasks</span></label>
+            </div>
+          </div>
+          <label class="field">Do people you live or spend time with have the same symptoms?
+            <select id="contacts">
+              <option value="unsure">Not sure</option>
+              <option value="yes">Yes</option>
+              <option value="no">No</option>
+            </select>
+          </label>
+          <label class="check"><input type="checkbox" id="sharedMeal"> In the 3 days before I got sick, I ate at a shared meal, dining hall event, or catered event.</label>
+          <label class="check"><input type="checkbox" id="travel"> I traveled outside the U.S. in the last 3 weeks.</label>
+          <label class="check"><input type="checkbox" id="provider"> I have seen a doctor, nurse, or ASU Health Services about this.</label>
+        </fieldset>
+
+        <label class="check"><input type="checkbox" id="consent"> I understand this is anonymous surveillance, not a diagnosis or medical care.</label>
+        <p class="err" id="formError" hidden></p>
+        <button class="btn" type="submit" id="submitBtn">Submit report</button>
+      </form>
+
+      <div id="resultCard" hidden></div>
+    </section>
+
+    <!-- ===================== SCREEN 2: DASHBOARD ===================== -->
+    <section class="screen" id="screen-dashboard" data-screen="dashboard" hidden>
+      <div class="dash-head">
+        <div class="prose" style="gap:4px">
+          <span class="eyebrow">Surveillance report · last 7 days by onset date</span>
+          <h2 id="statusLine">Loading reports…</h2>
+        </div>
+        <span class="live off" id="liveBadge"><i></i><span>Connecting</span></span>
+      </div>
+
+      <div class="kpis" id="kpis"></div>
+
+      <div class="panel qr-panel" id="qrPanel">
+        <div class="qr" id="qrCode" aria-label="QR code to open the survey"></div>
+        <div class="prose" style="gap:6px">
+          <span class="eyebrow">Live demo</span>
+          <h3>Scan to report symptoms</h3>
+          <p class="muted">Point your phone camera at the code. New reports appear on this dashboard within seconds.</p>
+          <span class="url" id="qrUrl"></span>
+        </div>
+      </div>
+
+      <div class="panel-head">
+        <h3>Potential clusters</h3>
+        <label class="check toolbar" style="align-items:center"><input type="checkbox" id="showDemo" checked> Include example reports</label>
+      </div>
+      <div class="alerts" id="alerts"></div>
+
+      <div class="panel">
+        <div class="panel-head">
+          <h3>Epidemic curve</h3>
+          <span class="eyebrow">Reports by symptom-onset date · 14 days</span>
+        </div>
+        <div class="chart-box" id="epiCurve"></div>
+        <div class="legend" id="legend"></div>
+      </div>
+
+      <div class="two-col">
+        <div class="panel">
+          <div class="panel-head"><h3>Where it is happening</h3><span class="eyebrow">Last 7 days</span></div>
+          <div class="table-box" id="heatmap"></div>
+        </div>
+        <div class="panel">
+          <div class="panel-head"><h3>Likely pathogen type</h3><span class="eyebrow">Last 7 days</span></div>
+          <div class="table-box" id="categoryTable"></div>
+        </div>
+      </div>
+
+      <div class="panel">
+        <div class="panel-head"><h3>Latest reports</h3><span class="eyebrow">Anonymous</span></div>
+        <div class="table-box" id="recent"></div>
+      </div>
+    </section>
+
+    <!-- ===================== SCREEN 3: METHOD ===================== -->
+    <section class="screen" id="screen-method" data-screen="method" hidden>
+      <div class="prose">
+        <h2>How Campus Sentinel works</h2>
+        <p>Syndromic surveillance watches for groups of symptoms before lab tests confirm a diagnosis. It trades certainty for speed: a health team hears about a stomach bug in one residence hall in days, not weeks.</p>
+        <ol class="steps">
+          <li><b>Collect.</b> A student submits an anonymous report: campuses, residence, onset date, symptoms, severity, and exposures (shared meals, travel, sick contacts).</li>
+          <li><b>Group into a syndrome.</b> Symptoms are sorted into one syndrome. Influenza-like illness uses the CDC definition: fever of 100°F or higher plus cough or sore throat.</li>
+          <li><b>Score pathogen type.</b> Each rule below adds points to one or more categories. The category with the most points wins. Confidence is that category's share of all points: 60% or more is high, 40–59% is moderate, below 40% is low.</li>
+          <li><b>Detect clusters.</b> Reports from the last 7 days are counted by residence and syndrome. Three or more in one residence is a <b>Watch</b>. Five or more, or any meningitis-like report, is an <b>Alert</b>. The same syndrome at five or more students across one campus raises a campus-wide signal. A cluster is <b>Rising</b> when this week's count is at least double the week before.</li>
+          <li><b>Recommend.</b> Each cluster shows the pathogens to look for, based on its syndrome and its most common pathogen category.</li>
+        </ol>
+      </div>
+      <div class="panel">
+        <div class="panel-head"><h3>Scoring rules</h3><span class="eyebrow" id="ruleCount"></span></div>
+        <div class="table-box" id="rulesTable"></div>
+      </div>
+      <div class="prose">
+        <h3>Limits</h3>
+        <p class="muted">The patterns come from the sources in the table, but the point values are the author's judgment, not weights measured from lab-confirmed cases. Symptoms alone cannot confirm a pathogen. Self-reports can be duplicated or missing, and students who feel mildly sick report less often. Rules here are simplified teaching versions of clinical patterns. A real deployment would confirm clusters with lab testing and campus health staff.</p>
+      </div>
+    </section>
+
+    <footer>Not medical advice. For trouble breathing, a stiff neck with fever, confusion, or chest pain, call 911. For other care, contact ASU Health Services or your own provider.</footer>
+  </main>
+</div>
+
+<nav class="tabbar" role="tablist" aria-label="Screens">
+  <div class="inner">
+    <button role="tab" id="tab-report" data-tab="report" aria-selected="true">
+      <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round"><rect x="5" y="3" width="14" height="18" rx="2"/><path d="M9 8h6M9 12h6M9 16h3"/></svg>
+      Report
+    </button>
+    <button role="tab" id="tab-dashboard" data-tab="dashboard" aria-selected="false">
+      <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round"><path d="M4 20V10M10 20V4M16 20v-7M22 20H2"/></svg>
+      Dashboard
+    </button>
+    <button role="tab" id="tab-method" data-tab="method" aria-selected="false">
+      <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round"><circle cx="12" cy="12" r="9"/><path d="M12 11v6M12 7.5v.5"/></svg>
+      Method
+    </button>
+  </div>
+</nav>
+
+<!-- Libraries: Firebase (database) and a QR code generator -->
+<script src="https://www.gstatic.com/firebasejs/10.12.2/firebase-app-compat.js"></script>
+<script src="https://www.gstatic.com/firebasejs/10.12.2/firebase-firestore-compat.js"></script>
+<script src="https://cdnjs.cloudflare.com/ajax/libs/qrcodejs/1.0.0/qrcode.min.js"></script>
+<!-- Your project's settings (edit this file, see README) -->
+<script src="firebase-config.js"></script>
+
+<script>
+/* =====================================================================
+   1. CONFIG — edit these lists to change the survey
+   ===================================================================== */
+
+const CAMPUSES = [
+  { id: "tempe",    name: "Tempe" },
+  { id: "downtown", name: "Downtown Phoenix" },
+  { id: "poly",     name: "Polytechnic" },
+  { id: "west",     name: "West Valley" },
+  { id: "havasu",   name: "Lake Havasu" },
+  { id: "online",   name: "Online only" },
+];
+
+// Each residence belongs to a campus. "campus" is used for campus-wide signals.
+const RESIDENCES = [
+  { group: "Tempe on campus", campus: "tempe", items: [
+    ["tempe-barrett", "Barrett Honors complex"],
+    ["tempe-hassayampa", "Hassayampa Academic Village"],
+    ["tempe-manzanita", "Manzanita Hall"],
+    ["tempe-tooker", "Tooker House"],
+    ["tempe-vds", "Vista del Sol"],
+    ["tempe-sonora", "Sonora Center"],
+    ["tempe-other", "Other Tempe residence hall"] ] },
+  { group: "Downtown Phoenix on campus", campus: "downtown", items: [
+    ["dtphx-taylor", "Taylor Place"],
+    ["dtphx-other", "Other Downtown housing"] ] },
+  { group: "Polytechnic on campus", campus: "poly", items: [
+    ["poly-century", "Century Hall"],
+    ["poly-other", "Other Polytechnic housing"] ] },
+  { group: "West Valley on campus", campus: "west", items: [
+    ["west-casadeoro", "Casa de Oro"],
+    ["west-other", "Other West Valley housing"] ] },
+  { group: "Lake Havasu", campus: "havasu", items: [
+    ["havasu-housing", "Lake Havasu housing"] ] },
+  { group: "Off campus", campus: null, items: [
+    ["off-tempe", "Off campus near Tempe"],
+    ["off-dtphx", "Off campus near Downtown"],
+    ["off-poly", "Off campus near Polytechnic"],
+    ["off-west", "Off campus near West Valley"],
+    ["off-home", "At home / long commute"] ] },
+];
+
+const SYMPTOMS = [
+  { group: "Nose, throat, chest", items: [
+    ["cough", "Cough"], ["sorethroat", "Sore throat"], ["nose", "Runny or stuffy nose"],
+    ["sob", "Shortness of breath"], ["smell", "Loss of taste or smell"], ["ear", "Ear pain"], ["sinus", "Sinus pressure"] ] },
+  { group: "Whole body", items: [
+    ["fever", "Fever or feeling feverish"], ["chills", "Chills"], ["aches", "Body aches"], ["fatigue", "Fatigue"],
+    ["headache", "Headache"], ["glands", "Swollen neck glands"], ["stiffneck", "Stiff neck"] ] },
+  { group: "Stomach", items: [
+    ["nausea", "Nausea"], ["vomiting", "Vomiting"], ["diarrhea", "Diarrhea"], ["blood", "Blood in stool"], ["cramps", "Stomach cramps"] ] },
+  { group: "Skin and eyes", items: [
+    ["rash", "Rash"], ["itchy", "Itchy skin"], ["eyes", "Red or itchy eyes"] ] },
+];
+
+// The six syndromes, in the order they are shown.
+const SYNDROMES = [
+  { id: "ili",   name: "Influenza-like illness", color: "var(--s-ili)" },
+  { id: "resp",  name: "Other respiratory",      color: "var(--s-resp)" },
+  { id: "gi",    name: "Gastrointestinal",       color: "var(--s-gi)" },
+  { id: "skin",  name: "Rash / skin",            color: "var(--s-skin)" },
+  { id: "neuro", name: "Meningitis-like",        color: "var(--s-neuro)" },
+  { id: "other", name: "Nonspecific",            color: "var(--s-other)" },
+];
+
+const CATEGORIES = [
+  { id: "viral",         name: "Viral" },
+  { id: "bacterial",     name: "Bacterial" },
+  { id: "fungal",        name: "Fungal" },
+  { id: "parasitic",     name: "Parasitic" },
+  { id: "noninfectious", name: "Non-infectious (allergy, irritant)" },
+];
+
+// Cluster thresholds (see Method screen)
+const WINDOW_DAYS = 7;
+const RESIDENCE_WATCH = 3;
+const RESIDENCE_ALERT = 5;
+const CAMPUS_SIGNAL = 5;
+
+// Quick lookups built from the lists above
+const residenceName = {};
+const residenceCampus = {};
+RESIDENCES.forEach(g => g.items.forEach(([id, name]) => { residenceName[id] = name; residenceCampus[id] = g.campus; }));
+const campusName = Object.fromEntries(CAMPUSES.map(c => [c.id, c.name]));
+const syndromeById = Object.fromEntries(SYNDROMES.map(s => [s.id, s]));
+const categoryName = Object.fromEntries(CATEGORIES.map(c => [c.id, c.name]));
+const knownSymptoms = new Set(SYMPTOMS.flatMap(g => g.items.map(i => i[0])));
+
+
+/* =====================================================================
+   2. CLASSIFIER — symptoms -> syndrome and pathogen category
+   Every rule is a plain object: a label, the points it gives, and a
+   test that returns true or false. This keeps the logic transparent.
+   ===================================================================== */
+
+const GI_SYMPTOMS   = ["nausea", "vomiting", "diarrhea", "blood", "cramps"];
+const RESP_SYMPTOMS = ["cough", "sorethroat", "nose", "sob", "smell", "ear", "sinus"];
+
+// Build the facts every rule can look at, from one report.
+function getFacts(report) {
+  const s = new Set(report.symptoms || []);
+  const has = id => s.has(id);
+  const temp = Number(report.maxTempF) || 0;
+  return {
+    has,
+    fever: has("fever") || temp >= 100,        // CDC ILI uses 100°F
+    highFever: temp >= 102.2,                   // 39°C
+    days: daysIll(report),
+    gi: GI_SYMPTOMS.some(has),
+    resp: RESP_SYMPTOMS.some(has),
+    report,
+  };
+}
+
+const RULES = [
+  { label: "Cough", source: "Common clinical pattern", why: "Most campus coughs are viral: flu, COVID-19, RSV, colds",
+    points: { viral: 2 }, test: f => f.has("cough") },
+  { label: "Runny or stuffy nose", source: "Common clinical pattern", why: "Common cold viruses; also allergies",
+    points: { viral: 2, noninfectious: 1 }, test: f => f.has("nose") },
+  { label: "Body aches", source: "CDC flu symptom list", why: "Typical of influenza",
+    points: { viral: 2 }, test: f => f.has("aches") },
+  { label: "Loss of taste or smell", source: "CDC COVID-19 symptom list", why: "Strongly linked to COVID-19",
+    points: { viral: 3 }, test: f => f.has("smell") },
+  { label: "Sore throat with fever and no cough", source: "Centor criteria (strep throat)", why: "Centor-style pattern for strep throat",
+    points: { bacterial: 3 }, test: f => f.has("sorethroat") && f.fever && !f.has("cough") },
+  { label: "Swollen neck glands with fever", source: "Centor criteria (strep throat)", why: "Strep throat, mono",
+    points: { bacterial: 2 }, test: f => f.has("glands") && f.fever },
+  { label: "Fever of 102.2°F (39°C) or higher", source: "Common clinical pattern", why: "High fever fits flu and invasive bacteria",
+    points: { viral: 1, bacterial: 1 }, test: f => f.highFever },
+  { label: "Vomiting and diarrhea, ill 3 days or less", source: "Kaplan criteria (norovirus outbreaks)", why: "Norovirus pattern: sudden and short",
+    points: { viral: 3 }, test: f => f.has("vomiting") && f.has("diarrhea") && f.days <= 3 },
+  { label: "Blood in stool", source: "IDSA infectious diarrhea guideline, 2017", why: "Invasive bacteria: Shigella, Campylobacter, STEC E. coli",
+    points: { bacterial: 4 }, test: f => f.has("blood") },
+  { label: "Diarrhea with fever", source: "IDSA infectious diarrhea guideline, 2017", why: "Salmonella, Campylobacter",
+    points: { bacterial: 1 }, test: f => f.has("diarrhea") && f.fever },
+  { label: "Diarrhea for more than 7 days", source: "CDC Giardia / Crypto guidance; threshold shortened from the usual 14 days", why: "Giardia, Cryptosporidium",
+    points: { parasitic: 4 }, test: f => f.has("diarrhea") && f.days > 7 },
+  { label: "Stomach symptoms after a shared meal", source: "Standard outbreak-investigation exposure question", why: "Foodborne: Salmonella, C. perfringens, also norovirus",
+    points: { bacterial: 2, viral: 1 }, test: f => f.gi && f.report.sharedMeal },
+  { label: "Stomach symptoms after international travel", source: "CDC Yellow Book, travelers' diarrhea", why: "Traveler's diarrhea, Giardia",
+    points: { parasitic: 2, bacterial: 1 }, test: f => f.gi && f.report.travel },
+  { label: "Stiff neck with fever and headache", source: "Classic meningitis signs (adapted)", why: "Possible meningitis: urgent",
+    points: { bacterial: 4 }, test: f => f.has("stiffneck") && f.fever && f.has("headache") },
+  { label: "Rash with fever", source: "Common clinical pattern", why: "Measles, chickenpox, hand-foot-and-mouth",
+    points: { viral: 2 }, test: f => f.has("rash") && f.fever },
+  { label: "Itchy rash without fever", source: "Common clinical pattern", why: "Ringworm, athlete's foot, contact dermatitis",
+    points: { fungal: 2, noninfectious: 2 }, test: f => f.has("rash") && f.has("itchy") && !f.fever },
+  { label: "Itchy skin, no rash, no fever", source: "Common clinical pattern", why: "Scabies, fungal skin infection, dry skin",
+    points: { fungal: 1, parasitic: 1, noninfectious: 1 }, test: f => f.has("itchy") && !f.has("rash") && !f.fever },
+  { label: "Red, itchy eyes and runny nose without fever", source: "Common clinical pattern", why: "Allergy pattern (Phoenix pollen seasons)",
+    points: { noninfectious: 3 }, test: f => f.has("eyes") && f.has("nose") && !f.fever },
+  { label: "Respiratory symptoms for more than 10 days", source: "IDSA acute bacterial sinusitis guideline, 2012", why: "Sinusitis or secondary bacterial infection",
+    points: { bacterial: 2 }, test: f => f.resp && f.days > 10 },
+  { label: "Ear pain or sinus pressure", source: "Common clinical pattern", why: "Otitis media, sinusitis",
+    points: { bacterial: 1 }, test: f => f.has("ear") || f.has("sinus") },
+  { label: "Close contacts sick with the same symptoms", source: "Standard outbreak-investigation exposure question", why: "Person-to-person spread, most often viral",
+    points: { viral: 1 }, test: f => f.report.contacts === "yes" },
+  { label: "No fever and mild symptoms", source: "Design choice (no clinical source)", why: "Lower chance of infection",
+    points: { noninfectious: 1 }, test: f => !f.fever && f.report.severity === "mild" },
+];
+
+// Pick ONE syndrome. The order matters: the most urgent pattern wins.
+function getSyndrome(f) {
+  if (f.has("stiffneck") && f.fever) return "neuro";
+  if (f.gi) return "gi";
+  if (f.fever && (f.has("cough") || f.has("sorethroat"))) return "ili";  // CDC ILI definition
+  if (f.resp) return "resp";
+  if (f.has("rash") || f.has("itchy")) return "skin";
+  return "other";
+}
+
+// Run every rule, add up points, pick the category with the most.
+function classify(report) {
+  const f = getFacts(report);
+  const scores = { viral: 0, bacterial: 0, fungal: 0, parasitic: 0, noninfectious: 0 };
+  const matched = [];
+  for (const rule of RULES) {
+    if (rule.test(f)) {
+      matched.push(rule.label);
+      for (const cat in rule.points) scores[cat] += rule.points[cat];
+    }
+  }
+  const total = Object.values(scores).reduce((a, b) => a + b, 0);
+  let category = "undetermined", confidence = "low", share = 0;
+  if (total > 0) {
+    category = Object.keys(scores).reduce((best, c) => scores[c] > scores[best] ? c : best, "viral");
+    share = scores[category] / total;
+    confidence = share >= 0.6 ? "high" : share >= 0.4 ? "moderate" : "low";
+  }
+  const urgent =
+    f.has("sob") || (f.has("stiffneck") && f.fever) || f.has("blood") || report.severity === "severe";
+  return { syndrome: getSyndrome(f), category, confidence, share, scores, matched, urgent, days: f.days };
+}
+
+// What public-health staff should look for, by syndrome + category.
+const LOOK_FOR = {
+  "gi|viral":        "Norovirus-type spread. Check shared bathrooms and common areas; step up disinfection with bleach-based cleaner.",
+  "gi|bacterial":    "Foodborne bacteria such as Salmonella, Campylobacter, or C. perfringens. Ask about common meals and dining venues; alert environmental health.",
+  "gi|parasitic":    "Giardia or Cryptosporidium. Ask about pools, recreational water, and travel; standard chlorine does not kill Crypto.",
+  "ili|viral":       "Influenza, COVID-19, or RSV. Encourage testing and vaccination; watch for spread within the building.",
+  "ili|bacterial":   "Strep A or Mycoplasma pneumoniae. Encourage throat swabs and clinic visits.",
+  "resp|viral":      "Common-cold viruses (rhinovirus, adenovirus) or mild COVID-19. Usually self-limited; reinforce hand hygiene.",
+  "resp|bacterial":  "Strep throat, pertussis, or sinus infections. Check for prolonged cough.",
+  "resp|noninfectious": "Allergy or air-quality pattern. Check pollen, dust storms, and building HVAC.",
+  "skin|viral":      "Chickenpox, measles, or hand-foot-and-mouth. Check vaccination records and isolate febrile cases.",
+  "skin|fungal":     "Ringworm or athlete's foot. Check shared showers, gyms, and locker rooms.",
+  "skin|parasitic":  "Scabies or bed bugs. Inspect bedding and shared furniture.",
+  "skin|noninfectious": "Contact dermatitis. Check new cleaning products or laundry detergent.",
+  "neuro|bacterial": "Possible bacterial meningitis (Neisseria meningitidis). Contact health services immediately; close contacts may need preventive antibiotics.",
+};
+function lookFor(syndrome, category) {
+  if (syndrome === "neuro") return LOOK_FOR["neuro|bacterial"];
+  return LOOK_FOR[syndrome + "|" + category] || "Mixed pattern. Review individual reports and consider clinical follow-up.";
+}
+
+
+/* =====================================================================
+   DATE HELPERS — dates are stored as "YYYY-MM-DD" text
+   ===================================================================== */
+
+function todayStr() {
+  const d = new Date();
+  return d.getFullYear() + "-" + String(d.getMonth() + 1).padStart(2, "0") + "-" + String(d.getDate()).padStart(2, "0");
+}
+function toUTC(str) { const [y, m, d] = str.split("-").map(Number); return Date.UTC(y, m - 1, d); }
+function addDays(str, n) { return new Date(toUTC(str) + n * 864e5).toISOString().slice(0, 10); }
+function daysBetween(a, b) { return Math.round((toUTC(b) - toUTC(a)) / 864e5); }
+function daysIll(report) {
+  const end = report.submittedAt ? report.submittedAt.slice(0, 10) : todayStr();
+  return report.onset ? Math.max(0, daysBetween(report.onset, end)) : 0;
+}
+// MMWR (CDC epidemiological) week: weeks start Sunday; week 1 is the first week with 4+ days in January.
+function mmwrWeek(str) {
+  const t = toUTC(str);
+  const startOf = y => { const jan1 = new Date(Date.UTC(y, 0, 1)); const dow = jan1.getUTCDay();
+    return Date.UTC(y, 0, dow <= 3 ? 1 - dow : 8 - dow); };
+  let year = Number(str.slice(0, 4));
+  let start = startOf(year);
+  if (t < start) { year -= 1; start = startOf(year); }
+  else if (t >= startOf(year + 1)) { year += 1; start = startOf(year); }
+  return { year, week: Math.floor((t - start) / (7 * 864e5)) + 1 };
+}
+function shortDate(str) { const [, m, d] = str.split("-"); return Number(m) + "/" + Number(d); }
+function timeAgo(iso) {
+  const mins = Math.round((Date.now() - new Date(iso).getTime()) / 60000);
+  if (mins < 1) return "just now";
+  if (mins < 60) return mins + " min ago";
+  const h = Math.round(mins / 60);
+  if (h < 24) return h + " h ago";
+  return Math.round(h / 24) + " d ago";
+}
+// Safety: everything stored is shared data, so escape it before showing it.
+function esc(v) { return String(v ?? "").replace(/[&<>"']/g, c => ({ "&": "&amp;", "<": "&lt;", ">": "&gt;", '"': "&quot;", "'": "&#39;" }[c])); }
+
+
+/* =====================================================================
+   3. CLUSTER DETECTION
+   ===================================================================== */
+
+function detectClusters(reports) {
+  const today = todayStr();
+  const windowStart = addDays(today, -(WINDOW_DAYS - 1));
+  const prevStart = addDays(windowStart, -WINDOW_DAYS);
+  const inWindow = r => r.onset >= windowStart && r.onset <= today;
+  const inPrev = r => r.onset >= prevStart && r.onset < windowStart;
+
+  // Count reports into groups. key -> { current: [...], previous: n }
+  function group(keyFn) {
+    const groups = {};
+    for (const r of reports) {
+      const key = keyFn(r);
+      if (!key) continue;
+      groups[key] = groups[key] || { current: [], previous: 0 };
+      if (inWindow(r)) groups[key].current.push(r);
+      else if (inPrev(r)) groups[key].previous++;
+    }
+    return groups;
+  }
+
+  const clusters = [];
+
+  // (a) Residence clusters: same place + same syndrome
+  const byResidence = group(r => r.residence + "|" + r.c.syndrome);
+  for (const key in byResidence) {
+    const g = byResidence[key];
+    const [residence, syndrome] = key.split("|");
+    const n = g.current.length;
+    const anyUrgentNeuro = syndrome === "neuro" && n > 0;
+    if (n >= RESIDENCE_WATCH || anyUrgentNeuro) {
+      clusters.push(makeCluster("residence", residenceName[residence] || residence, syndrome, g,
+        (n >= RESIDENCE_ALERT || anyUrgentNeuro) ? "alert" : "watch"));
+    }
+  }
+
+  // (b) Campus-wide signals: students who attend the same campus, same syndrome
+  const byCampus = {};
+  for (const r of reports) {
+    for (const campus of (r.campuses || [])) {
+      const key = campus + "|" + r.c.syndrome;
+      byCampus[key] = byCampus[key] || { current: [], previous: 0 };
+      if (inWindow(r)) byCampus[key].current.push(r);
+      else if (inPrev(r)) byCampus[key].previous++;
+    }
+  }
+  for (const key in byCampus) {
+    const g = byCampus[key];
+    const [campus, syndrome] = key.split("|");
+    if (campus === "online" || syndrome === "other") continue;
+    if (g.current.length >= CAMPUS_SIGNAL) {
+      clusters.push(makeCluster("campus", (campusName[campus] || campus) + " campus", syndrome, g, "watch"));
+    }
+  }
+
+  // Alerts first, then biggest
+  clusters.sort((a, b) => (a.level === b.level ? 0 : a.level === "alert" ? -1 : 1) || b.count - a.count);
+  return clusters;
+}
+
+function makeCluster(kind, place, syndrome, g, level) {
+  const tally = {};
+  g.current.forEach(r => { tally[r.c.category] = (tally[r.c.category] || 0) + 1; });
+  const category = Object.keys(tally).sort((a, b) => tally[b] - tally[a])[0];
+  const onsets = g.current.map(r => r.onset).sort();
+  const count = g.current.length;
+  return {
+    kind, place, syndrome, level, count,
+    previous: g.previous,
+    rising: count >= 2 * Math.max(1, g.previous),
+    category, categoryShare: Math.round(100 * tally[category] / count),
+    first: onsets[0], last: onsets[onsets.length - 1],
+    sharedMeal: g.current.filter(r => r.sharedMeal).length,
+    lookFor: lookFor(syndrome, category),
+  };
+}
+
+
+/* =====================================================================
+   4. DATA STORAGE — Firebase Cloud Firestore
+   Each report is one document in the "reports" collection.
+   onSnapshot() keeps a live connection open: whenever ANY device adds a
+   report, Firestore pushes the new list to every open dashboard.
+   If firebase-config.js hasn't been filled in, the app runs in local
+   mode and keeps reports in memory for this visit only.
+   ===================================================================== */
+
+const state = { reports: [], db: null, showDemo: true, lastUpdate: null };
+
+function hasConfig() {
+  const c = window.FIREBASE_CONFIG;
+  return !!(window.firebase && c && c.projectId && !String(c.projectId).startsWith("PASTE"));
+}
+
+function connectDatabase() {
+  if (!hasConfig()) {
+    showBanner("Local mode: add your Firebase settings to firebase-config.js to share reports between devices.");
+    setLive(false, "Local only");
+    renderDashboard();
+    return;
+  }
+  firebase.initializeApp(window.FIREBASE_CONFIG);
+  state.db = firebase.firestore();
+
+  // Subscribe ONCE. The callback runs now and again whenever anyone submits.
+  state.db.collection("reports").onSnapshot(
+    snap => {
+      state.reports = snap.docs.map(d => ({ id: d.id, ...d.data() }));
+      state.lastUpdate = new Date();
+      setLive(true, "Live");
+      renderDashboard();
+    },
+    err => {
+      setLive(false, "Disconnected");
+      showBanner(err.code === "permission-denied"
+        ? "The database refused to share reports. Check that the Firestore rules are published (see README)."
+        : "Live updates stopped (" + err.code + "). Reload the page to reconnect.");
+    }
+  );
+}
+
+async function saveReport(report) {
+  if (state.db) {
+    await state.db.collection("reports").add(report);  // snapshot listener re-renders
+  } else {
+    state.reports.push({ id: "local-" + Date.now(), ...report });
+    renderDashboard();
+  }
+}
+
+// QR code pointing at this page's survey tab, for live demos.
+function renderQR() {
+  const url = location.href.split("#")[0] + "#report";
+  $("qrUrl").textContent = url;
+  if (!window.QRCode) { $("qrCode").hidden = true; return; }
+  new QRCode($("qrCode"), { text: url, width: 280, height: 280, colorDark: "#1F1A1C", colorLight: "#FFFFFF", correctLevel: QRCode.CorrectLevel.M });
+}
+
+
+/* =====================================================================
+   5. SURVEY FORM
+   ===================================================================== */
+
+const $ = id => document.getElementById(id);
+
+function buildForm() {
+  $("campusChips").innerHTML = CAMPUSES.map(c =>
+    `<label class="chip-toggle"><input type="checkbox" name="campus" value="${c.id}" id="campus-${c.id}"><span>${c.name}</span></label>`
+  ).join("");
+
+  $("residence").innerHTML = `<option value="">Choose one…</option>` + RESIDENCES.map(g =>
+    `<optgroup label="${g.group}">` + g.items.map(([id, n]) => `<option value="${id}">${n}</option>`).join("") + `</optgroup>`
+  ).join("");
+
+  $("symptomGroups").innerHTML = SYMPTOMS.map(g =>
+    `<div class="sym-group"><span class="eyebrow">${g.group}</span><div class="chips">` +
+    g.items.map(([id, n]) => `<label class="chip-toggle"><input type="checkbox" name="symptom" value="${id}" id="sym-${id}"><span>${n}</span></label>`).join("") +
+    `</div></div>`
+  ).join("");
+
+  const today = todayStr();
+  $("onset").max = today;
+  $("onset").value = addDays(today, -1);
+  updateDaysHint();
+  $("onset").addEventListener("change", updateDaysHint);
+  $("survey").addEventListener("submit", onSubmit);
+}
+
+function updateDaysHint() {
+  const v = $("onset").value;
+  if (!v) { $("daysIllHint").textContent = ""; return; }
+  const d = daysBetween(v, todayStr());
+  $("daysIllHint").textContent = d <= 0 ? "Your symptoms started today." : `You have been ill for ${d} day${d === 1 ? "" : "s"}.`;
+}
+
+function readForm() {
+  const checked = name => [...document.querySelectorAll(`input[name="${name}"]:checked`)].map(i => i.value);
+  const temp = parseFloat($("temp").value);
+  return {
+    campuses: checked("campus"),
+    residence: $("residence").value,
+    onset: $("onset").value,
+    symptoms: checked("symptom"),
+    maxTempF: Number.isFinite(temp) ? temp : null,
+    severity: checked("severity")[0] || "mild",
+    contacts: $("contacts").value,
+    sharedMeal: $("sharedMeal").checked,
+    travel: $("travel").checked,
+    sawProvider: $("provider").checked,
+    submittedAt: new Date().toISOString(),
+  };
+}
+
+function validate(r) {
+  if (r.campuses.length === 0) return "Choose at least one campus.";
+  if (!r.residence) return "Choose where you live.";
+  if (!r.onset) return "Enter the date your symptoms started.";
+  if (r.onset > todayStr()) return "The start date can't be in the future.";
+  if (r.symptoms.length === 0) return "Tap at least one symptom.";
+  if (r.maxTempF !== null && (r.maxTempF < 95 || r.maxTempF > 108)) return "Temperature should be between 95 and 108 °F.";
+  if (!$("consent").checked) return "Check the box to confirm you understand this is not a diagnosis.";
+  return null;
+}
+
+async function onSubmit(e) {
+  e.preventDefault();                       // stay on this page
+  const report = readForm();
+  const problem = validate(report);
+  $("formError").hidden = !problem;
+  $("formError").textContent = problem || "";
+  if (problem) return;
+
+  $("submitBtn").disabled = true;
+  $("submitBtn").textContent = "Submitting…";
+  try {
+    await saveReport(report);
+    showResult(report);
+    $("survey").hidden = true;
+  } catch (err) {
+    $("formError").hidden = false;
+    $("formError").textContent = err && err.code === "permission-denied"
+      ? "The database rejected this report. Check that the Firestore rules in the README are published."
+      : "Your report didn't save. Check your connection and try again.";
+  } finally {
+    $("submitBtn").disabled = false;
+    $("submitBtn").textContent = "Submit report";
+  }
+}
+
+function showResult(report) {
+  const c = classify(report);
+  const syn = syndromeById[c.syndrome];
+  const cat = c.category === "undetermined" ? "Undetermined" : categoryName[c.category];
+  $("resultCard").innerHTML = `
+    <div class="result">
+      <span class="eyebrow">Report received · thank you</span>
+      <p class="big">${syn.name}</p>
+      <p>For campus tracking, your symptoms fit a pattern most like <b>${cat.toLowerCase()}</b> illness (${c.confidence} confidence). This is a surveillance label, not a diagnosis.</p>
+      ${c.urgent ? `<div class="urgent"><b>Some of your answers can signal a serious illness.</b> Please contact ASU Health Services or a clinician today. For trouble breathing or a stiff neck with fever, call 911.</div>` : ""}
+      <p class="muted">Rest, drink fluids, wash your hands often, and stay home from class until you have been fever-free for 24 hours without medicine.</p>
+      <div class="toolbar">
+        <button class="btn" type="button" id="goDash">See the dashboard</button>
+        <button class="btn ghost" type="button" id="again">Submit another report</button>
+      </div>
+    </div>`;
+  $("resultCard").hidden = false;
+  $("goDash").onclick = () => showScreen("dashboard");
+  $("again").onclick = () => { $("survey").reset(); buildFormDefaults(); $("survey").hidden = false; $("resultCard").hidden = true; };
+  $("resultCard").scrollIntoView({ behavior: "smooth", block: "start" });
+}
+function buildFormDefaults() { $("onset").value = addDays(todayStr(), -1); updateDaysHint(); }
+
+
+/* =====================================================================
+   6. DASHBOARD
+   ===================================================================== */
+
+function visibleReports() {
+  return state.reports
+    .filter(r => r && r.onset && Array.isArray(r.symptoms))            // ignore malformed rows
+    .filter(r => state.showDemo || !r.demo)
+    .map(r => ({ ...r, symptoms: r.symptoms.filter(s => knownSymptoms.has(s)), c: classify(r) }));
+}
+
+function renderDashboard() {
+  const reports = visibleReports();
+  const today = todayStr();
+  const wStart = addDays(today, -(WINDOW_DAYS - 1));
+  const pStart = addDays(wStart, -WINDOW_DAYS);
+  const week = reports.filter(r => r.onset >= wStart && r.onset <= today);
+  const prev = reports.filter(r => r.onset >= pStart && r.onset < wStart);
+  const clusters = detectClusters(reports);
+  const alerts = clusters.filter(c => c.level === "alert").length;
+
+  // Headline
+  $("statusLine").textContent = clusters.length === 0
+    ? "No clusters detected"
+    : `${clusters.length} potential cluster${clusters.length === 1 ? "" : "s"}` + (alerts ? `, ${alerts} at alert level` : "");
+
+  // KPI tiles
+  const change = week.length - prev.length;
+  const pct = prev.length ? Math.round(100 * change / prev.length) : null;
+  const synCounts = countBy(week, r => r.c.syndrome);
+  const topSyn = Object.keys(synCounts).sort((a, b) => synCounts[b] - synCounts[a])[0];
+  const urgent = week.filter(r => r.c.urgent).length;
+  $("kpis").innerHTML = [
+    kpi("Reports, 7 days", week.length,
+      pct === null ? `<span class="muted">no prior week</span>` :
+      `<span class="${change > 0 ? "up" : "down"}">${change >= 0 ? "▲" : "▼"} ${Math.abs(pct)}% vs prior week</span>`),
+    kpi("Potential clusters", clusters.length, `<span class="muted">${alerts} alert · ${clusters.length - alerts} watch</span>`),
+    kpi("Top syndrome", topSyn ? synCounts[topSyn] : 0, `<span class="muted">${topSyn ? syndromeById[topSyn].name : "none"}</span>`),
+    kpi("Urgent flags", urgent, `<span class="muted">severe or red-flag symptoms</span>`),
+  ].join("");
+
+  // Alerts
+  $("alerts").innerHTML = clusters.length === 0
+    ? `<div class="quiet"><b>All quiet.</b> No residence has ${RESIDENCE_WATCH}+ reports of the same syndrome this week.</div>`
+    : clusters.map(alertCard).join("");
+
+  renderEpiCurve(reports, today);
+  renderHeatmap(week);
+  renderCategoryTable(week);
+  renderRecent(reports);
+}
+
+function kpi(label, num, sub) {
+  return `<div class="kpi"><span class="eyebrow">${label}</span><span class="num">${num}</span><span class="delta">${sub}</span></div>`;
+}
+
+function alertCard(c) {
+  const syn = syndromeById[c.syndrome];
+  const cat = categoryName[c.category] || "Undetermined";
+  return `
+  <article class="alert level-${c.level}">
+    <div class="alert-top">
+      <h3>${esc(c.place)} · <span class="syn"><i class="sw" style="background:${syn.color}"></i>${syn.name}</span></h3>
+      <span class="toolbar" style="gap:6px">
+        <span class="pill ${c.level === "alert" ? "alert-p" : "watch-p"}">${c.level}</span>
+        ${c.rising ? `<span class="pill alert-p">Rising</span>` : ""}
+      </span>
+    </div>
+    <div class="meta">
+      <span>${c.count} report${c.count === 1 ? "" : "s"} this week (${c.previous} prior)</span>
+      <span>onset ${shortDate(c.first)}–${shortDate(c.last)}</span>
+      <span>${c.kind === "campus" ? "campus-wide signal" : "same residence"}</span>
+      ${c.sharedMeal ? `<span>${c.sharedMeal} ate at a shared meal</span>` : ""}
+    </div>
+    <p>Likely pathogen type: <b>${cat}</b> <span class="muted">(${c.categoryShare}% of reports)</span></p>
+    <div class="lookfor"><b>Look for:</b> ${c.lookFor}</div>
+  </article>`;
+}
+
+// Stacked bar chart drawn as SVG by hand. One bar per day, one color per syndrome.
+function renderEpiCurve(reports, today) {
+  const DAYS = 14, W = 720, H = 240, L = 34, R = 10, T = 14, B = 34;
+  const days = Array.from({ length: DAYS }, (_, i) => addDays(today, i - DAYS + 1));
+  const counts = days.map(d => countBy(reports.filter(r => r.onset === d), r => r.c.syndrome));
+  const totals = counts.map(c => Object.values(c).reduce((a, b) => a + b, 0));
+  const step = Math.max(1, Math.ceil(Math.max(4, ...totals) / 4));
+  const yMax = step * 4;
+  const y = v => T + (H - T - B) * (1 - v / yMax);
+  const slot = (W - L - R) / DAYS, bw = slot * 0.66;
+
+  let svg = `<svg viewBox="0 0 ${W} ${H}" role="img" aria-label="Reports per day by syndrome, last 14 days">`;
+  for (let v = 0; v <= yMax; v += step) {
+    svg += `<line x1="${L}" x2="${W - R}" y1="${y(v)}" y2="${y(v)}" stroke="var(--line)" stroke-width="1"/>`;
+    svg += `<text x="${L - 8}" y="${y(v) + 4}" text-anchor="end" font-size="11" font-family="IBM Plex Mono, monospace" fill="var(--ink-2)">${v}</text>`;
+  }
+  // shade the 7-day surveillance window
+  svg += `<rect x="${L + slot * (DAYS - WINDOW_DAYS)}" y="${T}" width="${slot * WINDOW_DAYS}" height="${H - T - B}" fill="var(--surface-2)" opacity="0.6"/>`;
+  svg += `<text x="${W - R - 4}" y="${T + 12}" text-anchor="end" font-size="11" font-family="IBM Plex Mono, monospace" fill="var(--ink-2)">surveillance window</text>`;
+  days.forEach((d, i) => {
+    const x = L + slot * i + (slot - bw) / 2;
+    let acc = 0;
+    SYNDROMES.forEach(s => {
+      const n = counts[i][s.id] || 0;
+      if (!n) return;
+      svg += `<rect x="${x}" y="${y(acc + n)}" width="${bw}" height="${y(acc) - y(acc + n)}" fill="${s.color}"><title>${shortDate(d)}: ${n} ${s.name}</title></rect>`;
+      acc += n;
+    });
+    if (i % 2 === 1 || i === DAYS - 1) {
+      svg += `<text x="${x + bw / 2}" y="${H - B + 18}" text-anchor="middle" font-size="11" font-family="IBM Plex Mono, monospace" fill="var(--ink-2)"${i === DAYS - 1 ? ' font-weight="600"' : ""}>${i === DAYS - 1 ? "Today" : shortDate(d)}</text>`;
+    }
+  });
+  svg += `<line x1="${L}" x2="${W - R}" y1="${y(0)}" y2="${y(0)}" stroke="var(--ink-2)" stroke-width="1"/></svg>`;
+  $("epiCurve").innerHTML = svg;
+  $("legend").innerHTML = SYNDROMES.map(s => `<span><i class="sw" style="background:${s.color}"></i>${s.name}</span>`).join("");
+}
+
+// Residence x syndrome table; cell shading grows with count.
+function renderHeatmap(week) {
+  const byRes = {};
+  week.forEach(r => { (byRes[r.residence] = byRes[r.residence] || []).push(r); });
+  const rows = Object.keys(byRes).sort((a, b) => byRes[b].length - byRes[a].length);
+  if (!rows.length) { $("heatmap").innerHTML = `<p class="muted">No reports in the last 7 days.</p>`; return; }
+  const max = Math.max(...rows.flatMap(res => SYNDROMES.map(s => byRes[res].filter(r => r.c.syndrome === s.id).length)));
+  const shortName = { ili: "ILI", resp: "Resp", gi: "GI", skin: "Skin", neuro: "Neuro", other: "Other" };
+  let html = `<table><thead><tr><th>Residence</th>${SYNDROMES.map(s => `<th title="${s.name}" style="text-align:center">${shortName[s.id]}</th>`).join("")}<th style="text-align:center">Total</th></tr></thead><tbody>`;
+  rows.forEach(res => {
+    html += `<tr><td>${esc(residenceName[res] || res)}</td>`;
+    SYNDROMES.forEach(s => {
+      const n = byRes[res].filter(r => r.c.syndrome === s.id).length;
+      const pct = n ? Math.round(15 + 55 * n / max) : 0;
+      html += `<td class="n" style="${n ? `background:color-mix(in srgb, ${s.color} ${pct}%, transparent);font-weight:600` : "color:var(--ink-2)"}">${n || "·"}</td>`;
+    });
+    html += `<td class="n"><b>${byRes[res].length}</b></td></tr>`;
+  });
+  $("heatmap").innerHTML = html + `</tbody></table>`;
+}
+
+function renderCategoryTable(week) {
+  const counts = countBy(week, r => r.c.category);
+  const total = week.length || 1;
+  const order = [...CATEGORIES.map(c => c.id), "undetermined"].filter(id => counts[id]);
+  if (!order.length) { $("categoryTable").innerHTML = `<p class="muted">No reports in the last 7 days.</p>`; return; }
+  $("categoryTable").innerHTML = `<table><thead><tr><th>Category</th><th style="text-align:center">Reports</th><th>Share</th></tr></thead><tbody>` +
+    order.map(id => {
+      const n = counts[id], p = Math.round(100 * n / total);
+      return `<tr><td>${id === "undetermined" ? "Undetermined" : categoryName[id]}</td><td class="n">${n}</td>
+        <td><div style="display:flex;align-items:center;gap:8px"><div style="flex:1;height:8px;background:var(--surface-2);border-radius:4px;min-width:60px"><div style="width:${p}%;height:100%;background:var(--accent);border-radius:4px"></div></div><span class="mono" style="font-size:.8rem;width:3ch;text-align:right">${p}%</span></div></td></tr>`;
+    }).join("") + `</tbody></table>`;
+}
+
+function renderRecent(reports) {
+  const latest = [...reports].sort((a, b) => (b.submittedAt || "").localeCompare(a.submittedAt || "")).slice(0, 10);
+  if (!latest.length) { $("recent").innerHTML = `<p class="muted">No reports yet. Submit one from the Report tab.</p>`; return; }
+  $("recent").innerHTML = `<table><thead><tr><th>Submitted</th><th>Residence</th><th>Syndrome</th><th>Pathogen type</th><th>Days ill</th></tr></thead><tbody>` +
+    latest.map(r => {
+      const s = syndromeById[r.c.syndrome];
+      return `<tr><td class="mono" style="white-space:nowrap">${r.submittedAt ? timeAgo(r.submittedAt) : "—"}${r.demo ? ` <span class="pill ok-p">example</span>` : ""}</td>
+        <td>${esc(residenceName[r.residence] || r.residence)}</td>
+        <td><span class="syn"><i class="sw" style="background:${s.color}"></i>${s.name}</span></td>
+        <td>${r.c.category === "undetermined" ? "Undetermined" : categoryName[r.c.category]} <span class="muted">· ${r.c.confidence}</span>${r.c.urgent ? ` <span class="pill alert-p">urgent</span>` : ""}</td>
+        <td class="n">${r.c.days}</td></tr>`;
+    }).join("") + `</tbody></table>`;
+}
+
+function renderRules() {
+  $("ruleCount").textContent = RULES.length + " rules";
+  $("rulesTable").innerHTML = `<table><thead><tr><th>If the report shows…</th><th>Points</th><th>Why</th><th>Source</th></tr></thead><tbody>` +
+    RULES.map(r => `<tr><td>${r.label}</td><td class="pts">${Object.entries(r.points).map(([k, v]) => `+${v} ${categoryName[k].split(" ")[0].toLowerCase()}`).join("<br>")}</td><td class="muted">${r.why}</td><td class="src">${r.source}</td></tr>`).join("") +
+    `</tbody></table>`;
+}
+
+function countBy(list, fn) { const out = {}; list.forEach(x => { const k = fn(x); out[k] = (out[k] || 0) + 1; }); return out; }
+function showBanner(msg) { $("modeBanner").textContent = msg; $("modeBanner").hidden = false; }
+function setLive(on, text) { $("liveBadge").className = "live" + (on ? "" : " off"); $("liveBadge").lastElementChild.textContent = text; }
+
+
+/* =====================================================================
+   7. STARTUP — tabs, then form, then data
+   ===================================================================== */
+
+function showScreen(name) {
+  document.querySelectorAll("[data-screen]").forEach(s => { s.hidden = s.dataset.screen !== name; });
+  document.querySelectorAll("[data-tab]").forEach(b => b.setAttribute("aria-selected", String(b.dataset.tab === name)));
+  try { localStorage.setItem("sentinel-tab", name); } catch (e) {}
+  window.scrollTo(0, 0);
+}
+document.querySelectorAll("[data-tab]").forEach(b => b.addEventListener("click", () => showScreen(b.dataset.tab)));
+$("showDemo").addEventListener("change", e => { state.showDemo = e.target.checked; renderDashboard(); });
+
+const wk = mmwrWeek(todayStr());
+$("mmwr").textContent = `MMWR week ${wk.week}, ${wk.year}`;
+
+buildForm();
+renderRules();
+renderQR();
+renderDashboard();
+
+// Open the tab from the link (#dashboard) or the one used last time.
+let startTab = (location.hash || "").slice(1);
+if (!["report", "dashboard", "method"].includes(startTab)) {
+  try { startTab = localStorage.getItem("sentinel-tab") || "report"; } catch (e) { startTab = "report"; }
+}
+showScreen(["report", "dashboard", "method"].includes(startTab) ? startTab : "report");
+
+connectDatabase();
+</script>
+</body>
+</html>

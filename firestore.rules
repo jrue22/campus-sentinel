@@ -1,0 +1,36 @@
+rules_version = '2';
+
+// Security rules for Campus Sentinel.
+// Anyone may READ reports (the dashboard is public) and CREATE a report,
+// but only if it has exactly the expected shape. Nobody can edit or
+// delete reports from the website; the project owner can still delete
+// them in the Firebase console.
+service cloud.firestore {
+  match /databases/{database}/documents {
+
+    function validReport(d) {
+      return d.keys().hasOnly(['campuses', 'residence', 'onset', 'symptoms', 'maxTempF',
+                               'severity', 'contacts', 'sharedMeal', 'travel',
+                               'sawProvider', 'submittedAt', 'demo'])
+        && d.keys().hasAll(['campuses', 'residence', 'onset', 'symptoms', 'severity',
+                            'contacts', 'sharedMeal', 'travel', 'sawProvider', 'submittedAt'])
+        && d.campuses is list && d.campuses.size() >= 1 && d.campuses.size() <= 6
+        && d.residence is string && d.residence.size() <= 40
+        && d.onset is string && d.onset.matches('[0-9]{4}-[0-9]{2}-[0-9]{2}')
+        && d.symptoms is list && d.symptoms.size() >= 1 && d.symptoms.size() <= 25
+        && (!('maxTempF' in d) || d.maxTempF == null
+            || (d.maxTempF is number && d.maxTempF >= 95 && d.maxTempF <= 108))
+        && d.severity in ['mild', 'moderate', 'severe']
+        && d.contacts in ['yes', 'no', 'unsure']
+        && d.sharedMeal is bool && d.travel is bool && d.sawProvider is bool
+        && d.submittedAt is string && d.submittedAt.size() <= 40
+        && (!('demo' in d) || d.demo is bool);
+    }
+
+    match /reports/{reportId} {
+      allow read: if true;
+      allow create: if validReport(request.resource.data);
+      allow update, delete: if false;
+    }
+  }
+}

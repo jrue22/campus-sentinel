@@ -1,0 +1,111 @@
+<!doctype html>
+<html lang="en">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1">
+<title>Sentinel Example Data</title>
+<meta name="robots" content="noindex">
+<style>
+  body { margin: 0; padding: 32px 16px; font: 15px/1.55 system-ui, -apple-system, "Segoe UI", sans-serif; background: #F6F4F5; color: #1F1A1C; }
+  main { max-width: 60ch; margin: 0 auto; display: grid; gap: 14px; }
+  h1 { margin: 0; font-size: 1.5rem; }
+  button { font: inherit; font-weight: 600; background: #8C1D40; color: #fff; border: 0; border-radius: 10px; padding: 12px 18px; cursor: pointer; }
+  button[disabled] { opacity: .5; cursor: not-allowed; }
+  #log { font: 0.85rem/1.5 ui-monospace, Menlo, monospace; white-space: pre-wrap; background: #fff; border: 1px solid #DDD5D9; border-radius: 8px; padding: 12px; min-height: 3em; }
+  a { color: #8C1D40; }
+</style>
+</head>
+<body>
+<main>
+  <h1>Load example reports</h1>
+  <p>This page adds 38 made-up reports to your Firebase database so the dashboard has something to show. Dates are set relative to today, so run it shortly before your presentation. Each report is marked as an example, and the dashboard can hide them.</p>
+  <p>Running it twice adds a second copy. To remove examples, delete the <code>reports</code> collection in the Firebase console.</p>
+  <button id="go">Add 38 example reports</button>
+  <div id="log">Ready.</div>
+  <p><a href="./#dashboard">Open the dashboard</a></p>
+</main>
+
+<script src="https://www.gstatic.com/firebasejs/10.12.2/firebase-app-compat.js"></script>
+<script src="https://www.gstatic.com/firebasejs/10.12.2/firebase-firestore-compat.js"></script>
+<script src="firebase-config.js"></script>
+<script>
+const log = msg => { document.getElementById("log").textContent = msg; };
+
+// Small repeatable random number generator, so the example data is the same every time.
+let seed = 7;
+const rand = () => (seed = (seed * 16807) % 2147483647) / 2147483647;
+const pick = list => list[Math.floor(rand() * list.length)];
+
+function isoDate(daysAgo) {
+  const d = new Date(); d.setDate(d.getDate() - daysAgo);
+  return d.getFullYear() + "-" + String(d.getMonth() + 1).padStart(2, "0") + "-" + String(d.getDate()).padStart(2, "0");
+}
+function submitted(daysAgo, lag, hour) {
+  const d = new Date(); d.setDate(d.getDate() - Math.max(0, daysAgo - lag));
+  d.setHours(hour, Math.floor(rand() * 60), 0, 0);
+  if (d > new Date()) d.setTime(Date.now() - 5 * 60000);
+  return d.toISOString();
+}
+
+function buildExamples() {
+  const out = [];
+  const add = (residence, campuses, daysAgo, symptoms, o = {}) => out.push({
+    campuses, residence, onset: isoDate(daysAgo), symptoms,
+    maxTempF: o.temp ?? null, severity: o.sev || "moderate", contacts: o.contacts || "unsure",
+    sharedMeal: !!o.meal, travel: false, sawProvider: false,
+    submittedAt: submitted(daysAgo, o.lag ?? 1, o.hour ?? 10), demo: true,
+  });
+
+  // Norovirus-like cluster in one residence hall
+  [[4,1,9],[3,1,14],[3,0,20],[2,1,8],[2,0,17],[1,1,9],[1,0,13],[0,0,8]].forEach(([d, lag, hour]) =>
+    add("tempe-hassayampa", ["tempe"], d, ["nausea", "vomiting", "diarrhea", "cramps"].concat(d % 2 ? ["fever"] : []),
+      { sev: pick(["moderate", "severe"]), contacts: "yes", lag, hour }));
+  // Influenza-like illness downtown
+  [5, 4, 2, 1].forEach(d => add("dtphx-taylor", ["downtown"], d, ["fever", "cough", "aches", "fatigue", "headache"],
+    { temp: pick([101.4, 102.6, 100.8]), contacts: "yes" }));
+  // Strep-like group at Polytechnic
+  [6, 3, 1].forEach(d => add("poly-century", ["poly"], d, ["fever", "sorethroat", "glands", "headache"], { temp: 101.8 }));
+  // Background illness spread over two weeks
+  const bg = [
+    ["off-tempe", ["tempe"], ["nose", "sorethroat", "cough"]], ["tempe-manzanita", ["tempe"], ["cough", "nose", "fatigue"]],
+    ["off-west", ["west"], ["eyes", "nose"]], ["tempe-tooker", ["tempe"], ["rash", "itchy"]],
+    ["off-home", ["online"], ["headache", "fatigue"]], ["off-dtphx", ["downtown", "tempe"], ["diarrhea", "cramps", "fever"]],
+    ["tempe-barrett", ["tempe"], ["fever", "cough", "smell", "fatigue"]], ["west-casadeoro", ["west"], ["sinus", "nose", "headache"]],
+    ["tempe-vds", ["tempe"], ["cough", "nose"]], ["off-poly", ["poly"], ["nausea", "diarrhea"]],
+  ];
+  for (let i = 0; i < 22; i++) {
+    const [res, campuses, symptoms] = bg[i % bg.length];
+    add(res, campuses, Math.floor(rand() * 14), symptoms, { sev: "mild", contacts: pick(["no", "unsure"]), meal: i === 5 });
+  }
+  // One case the week before, as a baseline for the "Rising" check
+  add("tempe-hassayampa", ["tempe"], 10, ["nausea", "diarrhea"], { sev: "mild", contacts: "no" });
+  return out;
+}
+
+document.getElementById("go").addEventListener("click", async () => {
+  const c = window.FIREBASE_CONFIG;
+  if (!window.firebase || !c || String(c.projectId).startsWith("PASTE")) {
+    log("firebase-config.js still has placeholder values. Paste your project settings first (see README).");
+    return;
+  }
+  const btn = document.getElementById("go");
+  btn.disabled = true;
+  try {
+    if (!firebase.apps.length) firebase.initializeApp(c);
+    const reports = firebase.firestore().collection("reports");
+    const examples = buildExamples();
+    for (let i = 0; i < examples.length; i++) {
+      await reports.add(examples[i]);
+      log(`Added ${i + 1} of ${examples.length}…`);
+    }
+    log(`Done. Added ${examples.length} example reports.`);
+  } catch (err) {
+    log("Stopped: " + (err.code === "permission-denied"
+      ? "the database rejected a report. Check that firestore.rules is published."
+      : err.message));
+    btn.disabled = false;
+  }
+});
+</script>
+</body>
+</html>
