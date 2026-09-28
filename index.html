@@ -642,16 +642,22 @@ function lookFor(syndrome, category) {
    DATE HELPERS — dates are stored as "YYYY-MM-DD" text
    ===================================================================== */
 
-function todayStr() {
-  const d = new Date();
+const DATE_RE = /^\d{4}-\d{2}-\d{2}$/;           // "YYYY-MM-DD"
+function todayStr() { return localDate(new Date()); }
+// A Date (or ISO timestamp) as the LOCAL calendar date, "YYYY-MM-DD". null if invalid.
+function localDate(when) {
+  const d = new Date(when);
+  if (isNaN(d)) return null;
   return d.getFullYear() + "-" + String(d.getMonth() + 1).padStart(2, "0") + "-" + String(d.getDate()).padStart(2, "0");
 }
 function toUTC(str) { const [y, m, d] = str.split("-").map(Number); return Date.UTC(y, m - 1, d); }
 function addDays(str, n) { return new Date(toUTC(str) + n * 864e5).toISOString().slice(0, 10); }
 function daysBetween(a, b) { return Math.round((toUTC(b) - toUTC(a)) / 864e5); }
 function daysIll(report) {
-  const end = report.submittedAt ? report.submittedAt.slice(0, 10) : todayStr();
-  return report.onset ? Math.max(0, daysBetween(report.onset, end)) : 0;
+  // Use the LOCAL date of submission. (slice(0, 10) of the ISO string would give the
+  // UTC date, which is already tomorrow after 5 pm in Arizona: found in stress testing.)
+  const end = (report.submittedAt && localDate(report.submittedAt)) || todayStr();
+  return DATE_RE.test(report.onset || "") ? Math.max(0, daysBetween(report.onset, end)) : 0;
 }
 // MMWR (CDC epidemiological) week: weeks start Sunday; week 1 is the first week with 4+ days in January.
 function mmwrWeek(str) {
@@ -667,6 +673,7 @@ function mmwrWeek(str) {
 function shortDate(str) { const [, m, d] = str.split("-"); return Number(m) + "/" + Number(d); }
 function timeAgo(iso) {
   const mins = Math.round((Date.now() - new Date(iso).getTime()) / 60000);
+  if (!Number.isFinite(mins)) return "—";                  // unreadable timestamp
   if (mins < 1) return "just now";
   if (mins < 60) return mins + " min ago";
   const h = Math.round(mins / 60);
@@ -769,19 +776,31 @@ function makeCluster(kind, place, syndrome, g, level) {
 
 const state = { reports: [], db: null, showDemo: true, lastUpdate: null };
 
-function hasConfig() {
-  const c = window.FIREBASE_CONFIG;
-  return !!(window.firebase && c && c.projectId && !String(c.projectId).startsWith("PASTE"));
+// Find the project settings. Accepts either window.FIREBASE_CONFIG (our file)
+// or "const firebaseConfig = {...}" pasted straight from the Firebase console.
+function getConfig() {
+  if (window.FIREBASE_CONFIG) return window.FIREBASE_CONFIG;
+  try { return firebaseConfig; } catch (e) { return null; }   // eslint-disable-line no-undef
+}
+
+// Returns null when everything is ready, or a sentence explaining what's wrong.
+function setupProblem() {
+  const c = getConfig();
+  if (!window.firebase) return "the Firebase library didn't load. Check your internet connection, turn off any content blocker for this site, and reload.";
+  if (!c) return "firebase-config.js is missing or has a typo. It must sit next to index.html and start with window.FIREBASE_CONFIG = {";
+  if (!c.projectId || String(c.projectId).startsWith("PASTE")) return "firebase-config.js still has the PASTE_ placeholder values. Upload your edited copy.";
+  return null;
 }
 
 function connectDatabase() {
-  if (!hasConfig()) {
-    showBanner("Local mode: add your Firebase settings to firebase-config.js to share reports between devices.");
+  const problem = setupProblem();
+  if (problem) {
+    showBanner("Local mode: " + problem);
     setLive(false, "Local only");
     renderDashboard();
     return;
   }
-  firebase.initializeApp(window.FIREBASE_CONFIG);
+  firebase.initializeApp(getConfig());
   state.db = firebase.firestore();
 
   // Subscribe ONCE. The callback runs now and again whenever anyone submits.
@@ -939,9 +958,14 @@ function buildFormDefaults() { $("onset").value = addDays(todayStr(), -1); updat
 
 function visibleReports() {
   return state.reports
-    .filter(r => r && r.onset && Array.isArray(r.symptoms))            // ignore malformed rows
+    .filter(r => r && DATE_RE.test(r.onset || "") && Array.isArray(r.symptoms))   // skip malformed rows
     .filter(r => state.showDemo || !r.demo)
-    .map(r => ({ ...r, symptoms: r.symptoms.filter(s => knownSymptoms.has(s)), c: classify(r) }));
+    .map(r => {
+      const clean = { ...r,
+        symptoms: r.symptoms.filter(s => knownSymptoms.has(s)),           // drop unknown symptoms
+        campuses: Array.isArray(r.campuses) ? r.campuses : [] };          // a string would loop letter by letter
+      return { ...clean, c: classify(clean) };
+    });
 }
 
 function renderDashboard() {
