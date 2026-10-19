@@ -51,7 +51,7 @@
   <div class="row">
     <input type="file" id="lfile" accept=".csv,text/csv">
     <button id="lgo" disabled>Upload lineages</button>
-    <button id="ldemo" class="ghost" disabled>Add example lineage data</button>
+    <button id="ldemo" class="ghost" disabled>Add example lineage data (version 2)</button>
   </div>
 
   <div id="log">Ready.</div>
@@ -124,7 +124,10 @@ function buildDemo() {
 }
 
 // ---------- SARS-CoV-2 lineages ----------
-const lineageId = d => (d.demo ? "demo_" : "") + d.date + "_" + d.site;
+// Example data carries a version in its id, so a new version uploads even if the old one is still stored.
+// The dashboard keeps only the newest sample for each site and date.
+const LINEAGE_DEMO_VERSION = 2;
+const lineageId = d => (d.demo ? "demo-v" + LINEAGE_DEMO_VERSION + "_" : "") + d.date + "_" + d.site;
 
 // Long CSV (one row per lineage) -> one document per site + date.
 function parseLineageCsv(text) {

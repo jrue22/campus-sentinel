@@ -1090,9 +1090,16 @@ function diversity(shares) {
   return { H, effective: Math.exp(H) };
 }
 
-// Samples for one site, oldest first (last 8 samples).
+// Samples for one site, oldest first (last 8 samples). If a site has more than one sample
+// for the same date (for example, a re-run or a newer version of the example data), keep
+// only the most recently uploaded one.
 function lineageSeries(site) {
-  return state.lineages.filter(d => d.site === site).map(lineageShares).filter(Boolean)
+  const newest = new Map();
+  state.lineages.filter(d => d.site === site).forEach(d => {
+    const kept = newest.get(d.date);
+    if (!kept || String(d.submittedAt || "") > String(kept.submittedAt || "")) newest.set(d.date, d);
+  });
+  return [...newest.values()].map(lineageShares).filter(Boolean)
     .sort((a, b) => a.date < b.date ? -1 : 1).slice(-8);
 }
 
