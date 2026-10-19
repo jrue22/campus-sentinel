@@ -14,8 +14,8 @@ This project and associated documentation was generated with Anthropic’s Claud
 | `firebase-config.js` | Your Firebase project settings (you fill this in) |
 | `firestore.rules` | Database security rules (paste into the Firebase console) |
 | `seed.html` | Loads 38 example reports for demos |
-| `wastewater-config.js` | Wastewater targets (viruses, bacteria) and sampling sites. Edit to match your facility |
-| `wastewater-import.html` | Uploads a CSV of wastewater results, or loads example data |
+| `wastewater-config.js` | Wastewater targets (viruses, bacteria) and sampling sites with map coordinates. Edit to match your facility |
+| `wastewater-import.html` | Signed-in uploaders add a CSV of wastewater results, or example data |
 | `manifest.webmanifest`, `icon-*.png` | Make "Add to Home Screen" work like an app |
 
 ## Setup (about 15 minutes)
@@ -49,14 +49,28 @@ Firebase's menus change now and then, so the labels may differ slightly.
 
 ## Wastewater surveillance
 
-The dashboard adds a **Wastewater signals** panel. It compares the last 7 days of each site and target with the 28 days before. A 2x rise is *elevated* and 4x is *high*. When a signal has the same syndrome and place as a symptom cluster, the cluster card shows **+ wastewater**. A signal with no matching cluster is a possible early warning.
+The dashboard has a **Wastewater signals** panel with a map. For each sampling site and target, it compares the geometric mean of the last 7 days with the 28 days before. A 2x rise is *elevated* and 4x is *high*; a first detection after only non-detects is *elevated*. When a signal has the same syndrome and place as a symptom cluster, the cluster card shows **+ wastewater**. A signal with no matching cluster is a possible early warning.
 
-1. Edit `wastewater-config.js` so the sites match your facility's real sampling points, and the targets match the lab's assays.
-2. Re-publish `firestore.rules` (it now includes a `wastewater` collection) and upload all files to GitHub.
-3. Open `.../wastewater-import.html`. Click **Add example wastewater data** to demo (run `seed.html` too: the examples line up with its Hassayampa and Taylor Place clusters, plus one wastewater-only Salmonella signal at West Valley). For real data, paste or upload a CSV with `date,site,target,copies_per_l,pmmov_copies_per_l`.
-4. Each site and target needs at least 2 samples this week and 2 in the prior four weeks before it shows up.
+The map (Leaflet + OpenStreetMap) shows one circle per sampling site, colored by its strongest signal. Tap a circle for details. Site locations are the `lat` and `lng` values in `wastewater-config.js`.
 
-Data is public: do not upload anything confidential. As with reports, anyone with the link can add samples; real use needs sign-in on the import page.
+### One-time setup: who can upload lab data
+
+Anyone can submit a symptom report, but only listed accounts can add wastewater samples. One fake sample would show a "high" alert on every dashboard.
+
+1. Firebase console → **Build → Authentication → Get started**.
+2. **Sign-in method** tab → **Google** → **Enable** → choose a support email → **Save**.
+3. **Settings** tab → **Authorized domains** → **Add domain** → your GitHub Pages domain, e.g. `yourname.github.io` (no `https://`, no folder).
+4. In **Firestore Database → Rules**, paste `firestore.rules`, replace `YOUR-EMAIL@asu.edu` in `isLabUploader()` with the uploader's Google or ASU email (add teammates comma-separated, each in quotes), and click **Publish**. You can leave the placeholder in the GitHub copy so your email isn't public; the console copy is the one that counts.
+
+### Loading data
+
+1. Edit `wastewater-config.js` so the sites, coordinates and targets match your facility. The included sites and coordinates are placeholders.
+2. Open `.../wastewater-import.html` and **Sign in with Google**.
+3. Click **Add example wastewater data** to demo (run `seed.html` too: the examples line up with its Hassayampa and Taylor Place clusters, plus one wastewater-only Salmonella signal at West Valley). For real data, paste or upload a CSV with `date,site,target,copies_per_l,pmmov_copies_per_l`.
+4. Samples already stored (same site, target and date) are skipped, so uploading twice is safe.
+5. Each site and target needs at least 2 samples this week and 2 in the prior four weeks before it shows up.
+
+Wastewater data is public to read: do not upload anything confidential.
 
 ## Running the live demo
 
@@ -75,7 +89,7 @@ Tip: to set off an alert on purpose, ask everyone to pick the same residence hal
 ## Security notes
 
 - The values in `firebase-config.js` are meant to be public. They name your project; they don't grant access.
-- Access is controlled by `firestore.rules`: anyone can read reports and add a well-formed report, and nobody can edit or delete them from the website.
+- Access is controlled by `firestore.rules`: anyone can read reports and add a well-formed report; only listed, signed-in accounts can add wastewater samples; nobody can edit or delete either from the website.
 - Anyone with the link could still submit fake reports. A real deployment would add sign-in (for example ASU single sign-on) and rate limits.
 
 ## How the code is organized

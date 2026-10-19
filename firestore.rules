@@ -2,7 +2,8 @@ rules_version = '2';
 
 // Security rules for Campus Sentinel.
 // Anyone may READ reports (the dashboard is public) and CREATE a report,
-// but only if it has exactly the expected shape. Nobody can edit or
+// but only if it has exactly the expected shape. Wastewater samples can be
+// read by anyone but added only by signed-in uploaders on the list below. Nobody can edit or
 // delete reports from the website; the project owner can still delete
 // them in the Firebase console.
 service cloud.firestore {
@@ -45,9 +46,19 @@ service cloud.firestore {
       allow update, delete: if false;
     }
 
+    // Only these signed-in Google accounts may upload wastewater results.
+    // Replace YOUR-EMAIL@asu.edu with the uploader's email (add more, comma-separated).
+    // Lab data must come from a trusted source: one fake sample would show a
+    // "high" alert on every dashboard.
+    function isLabUploader() {
+      return request.auth != null
+        && request.auth.token.email_verified == true
+        && request.auth.token.email in ['YOUR-EMAIL@asu.edu'];
+    }
+
     match /wastewater/{sampleId} {
       allow read: if true;
-      allow create: if validWastewater(request.resource.data);
+      allow create: if isLabUploader() && validWastewater(request.resource.data);
       allow update, delete: if false;
     }
   }

@@ -3,6 +3,8 @@
 // The sites below are placeholders. "residences: []" means the site covers its whole campus;
 // a list of residence ids (from RESIDENCES in index.html) means a building-level sewer line.
 // "syndromes" links each target to the symptom syndromes it should show up in.
+// "lat" and "lng" place each site on the dashboard map. The values below are approximate
+// campus or building locations; replace them with the real manhole or sampler locations.
 window.WW_TARGETS = [
   { id: "sars2", name: "SARS-CoV-2",        category: "viral",     syndromes: ["ili", "resp"], hint: "Expect respiratory illness. Encourage testing, vaccination and staying home when sick." },
   { id: "fluA",  name: "Influenza A",       category: "viral",     syndromes: ["ili"],         hint: "Expect flu-like illness. Promote vaccination and early antiviral care for high-risk students." },
@@ -14,9 +16,9 @@ window.WW_TARGETS = [
   { id: "stec",  name: "STEC E. coli (stx)", category: "bacterial", syndromes: ["gi"],         hint: "Serious foodborne risk. Notify health services if bloody diarrhea is reported." },
 ];
 window.WW_SITES = [
-  { id: "tempe-campus",      name: "Tempe campus main sewer",       campus: "tempe",    residences: [] },
-  { id: "tempe-hassayampa",  name: "Hassayampa Village sewer line", campus: "tempe",    residences: ["tempe-hassayampa"] },
-  { id: "dtphx-campus",      name: "Downtown Phoenix campus sewer", campus: "downtown", residences: [] },
-  { id: "poly-campus",       name: "Polytechnic campus sewer",      campus: "poly",     residences: [] },
-  { id: "west-campus",       name: "West Valley campus sewer",      campus: "west",     residences: [] },
+  { id: "tempe-campus",      name: "Tempe campus main sewer",       campus: "tempe",    residences: [], lat: 33.4242, lng: -111.9281 },
+  { id: "tempe-hassayampa",  name: "Hassayampa Village sewer line", campus: "tempe",    residences: ["tempe-hassayampa"], lat: 33.4157, lng: -111.9296 },
+  { id: "dtphx-campus",      name: "Downtown Phoenix campus sewer", campus: "downtown", residences: [], lat: 33.4530, lng: -112.0735 },
+  { id: "poly-campus",       name: "Polytechnic campus sewer",      campus: "poly",     residences: [], lat: 33.3070, lng: -111.6790 },
+  { id: "west-campus",       name: "West Valley campus sewer",      campus: "west",     residences: [], lat: 33.6077, lng: -112.1606 },
 ];

@@ -14,27 +14,38 @@
   button.ghost { background: #EFEAEC; color: #1F1A1C; }
   button[disabled] { opacity: .5; cursor: not-allowed; }
   .row { display: flex; gap: 10px; flex-wrap: wrap; align-items: center; }
+  .signin { background: #fff; border: 1px solid #DDD5D9; border-radius: 10px; padding: 12px 14px; }
   #log { font: 0.85rem/1.5 ui-monospace, Menlo, monospace; white-space: pre-wrap; background: #fff; border: 1px solid #DDD5D9; border-radius: 8px; padding: 12px; min-height: 3em; }
   a { color: #8C1D40; } code { background: #EFEAEC; padding: 1px 4px; border-radius: 4px; }
+  [hidden] { display: none !important; }
 </style>
 </head>
 <body>
 <main>
   <h1>Load wastewater data</h1>
+
+  <!-- Only signed-in uploaders listed in firestore.rules can add samples. -->
+  <div class="signin row">
+    <span id="who">Checking sign-in…</span>
+    <button id="signIn" hidden>Sign in with Google</button>
+    <button id="signOut" class="ghost" hidden>Sign out</button>
+  </div>
+
   <p>Paste or upload a CSV from the treatment facility's lab. Columns, in this order, with a header row:</p>
   <p><code>date,site,target,copies_per_l,pmmov_copies_per_l</code></p>
-  <p>Dates are <code>YYYY-MM-DD</code> (the sample date, not the lab report date). <code>site</code> and <code>target</code> must be ids from <code>wastewater-config.js</code>. Use <code>0</code> for a non-detect. <code>pmmov_copies_per_l</code> is optional but recommended. Do not include any personal or facility-confidential data: this database is publicly readable.</p>
+  <p>Dates are <code>YYYY-MM-DD</code> (the sample date, not the lab report date). <code>site</code> and <code>target</code> must be ids from <code>wastewater-config.js</code>. Use <code>0</code> for a non-detect. <code>pmmov_copies_per_l</code> is optional but recommended; include it for every row or for none. Samples already in the database are skipped, so uploading the same file twice is safe. Do not include any personal or facility-confidential data: this database is publicly readable.</p>
   <textarea id="csv" spellcheck="false" placeholder="date,site,target,copies_per_l,pmmov_copies_per_l&#10;2026-10-12,tempe-campus,noro,24000,1100000&#10;2026-10-12,tempe-campus,sars2,0,1100000"></textarea>
   <div class="row">
     <input type="file" id="file" accept=".csv,text/csv">
-    <button id="go">Upload samples</button>
-    <button id="demo" class="ghost">Add example wastewater data</button>
+    <button id="go" disabled>Upload samples</button>
+    <button id="demo" class="ghost" disabled>Add example wastewater data</button>
   </div>
   <div id="log">Ready.</div>
   <p><a href="./#dashboard">Open the dashboard</a></p>
 </main>
 
 <script src="https://www.gstatic.com/firebasejs/10.12.2/firebase-app-compat.js"></script>
+<script src="https://www.gstatic.com/firebasejs/10.12.2/firebase-auth-compat.js"></script>
 <script src="https://www.gstatic.com/firebasejs/10.12.2/firebase-firestore-compat.js"></script>
 <script src="firebase-config.js"></script>
 <script src="wastewater-config.js"></script>
@@ -44,20 +55,33 @@ const log = m => { $("log").textContent = m; };
 const SITES = new Set(WW_SITES.map(s => s.id)), TARGETS = new Set(WW_TARGETS.map(t => t.id));
 const isoDate = ago => { const d = new Date(); d.setDate(d.getDate() - ago); return d.getFullYear() + "-" + String(d.getMonth() + 1).padStart(2, "0") + "-" + String(d.getDate()).padStart(2, "0"); };
 
+// A real calendar date? (The pattern alone would accept 2026-13-40.)
+function isRealDate(str) {
+  if (!/^\d{4}-\d{2}-\d{2}$/.test(str || "")) return false;
+  const [y, m, d] = str.split("-").map(Number);
+  const t = new Date(Date.UTC(y, m - 1, d));
+  return t.getUTCFullYear() === y && t.getUTCMonth() === m - 1 && t.getUTCDate() === d;
+}
+
+// One document id per site + target + date, so the same sample can't be stored twice.
+const sampleId = d => (d.demo ? "demo_" : "") + d.date + "_" + d.site + "_" + d.target;
+
 // CSV text -> { docs, errors }. Every row is checked before anything is uploaded.
+// Row numbers match the line numbers in the file, header included.
 function parseCsv(text) {
   const docs = [], errors = [];
-  const lines = text.split(/\r?\n/).map(l => l.trim()).filter(Boolean);
-  if (lines[0] && /^date\s*,/i.test(lines[0])) lines.shift();
-  lines.forEach((line, i) => {
-    const [date, site, target, copies, pmmov] = line.split(",").map(x => x.trim());
+  text.split(/\r?\n/).forEach((raw, i) => {
+    const line = raw.trim(), lineNo = i + 1;
+    if (!line || (lineNo === 1 && /^date\s*,/i.test(line))) return;   // skip blanks and the header
+    const [date, site, target, copies, pmmov] = line.split(",").map(x => x.trim().replace(/^"|"$/g, ""));
     const c = Number(copies), p = pmmov ? Number(pmmov) : null;
-    const bad = !/^\d{4}-\d{2}-\d{2}$/.test(date || "") ? "date must be YYYY-MM-DD"
+    const bad = !isRealDate(date) ? "date must be a real date written YYYY-MM-DD"
+      : date > isoDate(0) ? "date is in the future"
       : !SITES.has(site) ? "unknown site '" + site + "'"
       : !TARGETS.has(target) ? "unknown target '" + target + "'"
-      : !(copies !== "" && Number.isFinite(c) && c >= 0) ? "copies_per_l must be a number, 0 or more"
+      : !(copies !== "" && Number.isFinite(c) && c >= 0 && c <= 1e12) ? "copies_per_l must be a number from 0 to 1,000,000,000,000"
       : (p !== null && !(Number.isFinite(p) && p > 0)) ? "pmmov must be a positive number" : null;
-    if (bad) { errors.push("Row " + (i + 1) + ": " + bad); return; }
+    if (bad) { errors.push("Line " + lineNo + ": " + bad); return; }
     docs.push({ site, target, date, copiesPerL: c, ...(p ? { pmmovPerL: p } : {}), submittedAt: new Date().toISOString() });
   });
   return { docs, errors };
@@ -83,25 +107,69 @@ function buildDemo() {
   return out;
 }
 
-async function upload(docs) {
+// ---------- Firebase setup and sign-in ----------
+let db = null, auth = null;
+function setButtons(enabled) { $("go").disabled = $("demo").disabled = !enabled; }
+
+(function start() {
   const c = window.FIREBASE_CONFIG;
-  if (!window.firebase) return log("The Firebase library didn't load. Check your connection or content blocker and reload.");
-  if (!c || String(c.projectId).startsWith("PASTE")) return log("firebase-config.js still has placeholder values.");
-  $("go").disabled = $("demo").disabled = true;
+  if (!window.firebase) { $("who").textContent = "The Firebase library didn't load. Check your connection or content blocker and reload."; return; }
+  if (!c || String(c.projectId).startsWith("PASTE")) { $("who").textContent = "firebase-config.js is missing or still has placeholder values."; return; }
+  if (!firebase.apps.length) firebase.initializeApp(c);
+  db = firebase.firestore();
+  auth = firebase.auth();
+  auth.onAuthStateChanged(user => {           // runs on load and after every sign-in or sign-out
+    $("who").textContent = user ? "Signed in as " + user.email : "Sign in to upload. Only accounts listed in firestore.rules can add samples.";
+    $("signIn").hidden = !!user;
+    $("signOut").hidden = !user;
+    setButtons(!!user);
+  });
+})();
+
+$("signIn").addEventListener("click", async () => {
+  const provider = new firebase.auth.GoogleAuthProvider();
   try {
-    if (!firebase.apps.length) firebase.initializeApp(c);
-    const db = firebase.firestore();
-    for (let i = 0; i < docs.length; i += 400) {            // a batch holds at most 500 writes
-      const batch = db.batch();
-      docs.slice(i, i + 400).forEach(d => batch.set(db.collection("wastewater").doc(), d));
-      await batch.commit();
-      log("Uploaded " + Math.min(i + 400, docs.length) + " of " + docs.length + "…");
-    }
-    log("Done. Uploaded " + docs.length + " samples.");
+    await auth.signInWithPopup(provider);
   } catch (err) {
-    log("Stopped: " + (err.code === "permission-denied" ? "the database rejected a sample. Publish the updated firestore.rules." : err.message));
+    if (err.code === "auth/popup-blocked" || err.code === "auth/operation-not-supported-in-this-environment") {
+      return auth.signInWithRedirect(provider);          // fall back to a full-page sign-in
+    }
+    log("Sign-in failed: " + ({
+      "auth/unauthorized-domain": "this website isn't on Firebase's list. Add it under Authentication > Settings > Authorized domains.",
+      "auth/operation-not-allowed": "Google sign-in is turned off. Turn it on under Authentication > Sign-in method.",
+      "auth/popup-closed-by-user": "the sign-in window was closed before finishing.",
+    }[err.code] || err.message));
   }
-  $("go").disabled = $("demo").disabled = false;
+});
+$("signOut").addEventListener("click", () => auth.signOut());
+
+// ---------- Upload ----------
+async function upload(docs) {
+  if (!db || !auth.currentUser) return log("Sign in first.");
+  setButtons(false);
+  try {
+    // Skip samples that are already stored (same site + target + date).
+    const minDate = docs.map(d => d.date).sort()[0];
+    const existing = new Set((await db.collection("wastewater").where("date", ">=", minDate).get()).docs.map(d => d.id));
+    const fresh = docs.filter(d => !existing.has(sampleId(d)));
+    const unique = [...new Map(fresh.map(d => [sampleId(d), d])).values()];   // duplicates inside the file too
+    const skipped = docs.length - unique.length;
+    if (!unique.length) { log("Nothing new to upload. All " + docs.length + " samples are already in the database."); return; }
+
+    for (let i = 0; i < unique.length; i += 400) {          // a batch holds at most 500 writes
+      const batch = db.batch();
+      unique.slice(i, i + 400).forEach(d => batch.set(db.collection("wastewater").doc(sampleId(d)), d));
+      await batch.commit();
+      log("Uploaded " + Math.min(i + 400, unique.length) + " of " + unique.length + "…");
+    }
+    log("Done. Uploaded " + unique.length + " samples" + (skipped ? "; skipped " + skipped + " already stored." : "."));
+  } catch (err) {
+    log("Stopped: " + (err.code === "permission-denied"
+      ? "the database refused. Check that " + auth.currentUser.email + " is listed in isLabUploader() in firestore.rules, and that the rules are published."
+      : err.message));
+  } finally {
+    setButtons(!!auth.currentUser);
+  }
 }
 
 $("file").addEventListener("change", e => { const f = e.target.files[0]; if (f) f.text().then(t => { $("csv").value = t; }); });

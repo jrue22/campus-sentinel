@@ -33,6 +33,8 @@
 <link rel="preconnect" href="https://fonts.googleapis.com">
 <link rel="preconnect" href="https://fonts.gstatic.com" crossorigin>
 <link rel="stylesheet" href="https://fonts.googleapis.com/css2?family=Archivo:wdth,wght@75..100,500..800&family=IBM+Plex+Sans:wght@400;500;600&family=IBM+Plex+Mono:wght@400;500&display=swap">
+<!-- Leaflet: the map library used for the wastewater map -->
+<link rel="stylesheet" href="https://cdnjs.cloudflare.com/ajax/libs/leaflet/1.9.4/leaflet.min.css">
 <style>
   /* ---------- Design tokens (light theme) ---------- */
   :root {
@@ -207,6 +209,13 @@
   th { font: 500 0.7rem var(--f-mono); letter-spacing: 0.06em; text-transform: uppercase; color: var(--ink-2); white-space: nowrap; }
   td.n { text-align: center; font-family: var(--f-mono); font-variant-numeric: tabular-nums; }
   .syn { display: inline-flex; align-items: center; gap: 6px; white-space: nowrap; }
+  /* Wastewater map. z-index 0 keeps Leaflet's layers under the fixed tab bar. */
+  .ww-map { position: relative; z-index: 0; height: 340px; border: 1px solid var(--line); border-radius: 10px; overflow: hidden; background: var(--surface-2); }
+  .map-legend { display: flex; flex-wrap: wrap; gap: 6px 16px; font-size: 0.8rem; color: var(--ink-2); align-items: center; }
+  .map-legend span { display: inline-flex; align-items: center; gap: 6px; }
+  .dot { width: 12px; height: 12px; border-radius: 50%; display: inline-block; border: 2px solid #FFFFFF; box-shadow: 0 0 0 1px var(--line); }
+  .leaflet-popup-content { font: 13px/1.45 var(--f-body); color: #1F1A1C; }
+  .leaflet-popup-content ul { margin: 6px 0 0; padding-left: 18px; }
   .two-col { display: grid; grid-template-columns: repeat(auto-fit, minmax(320px, 1fr)); gap: 16px; }
   .toolbar { display: flex; gap: 12px; align-items: center; flex-wrap: wrap; font-size: 0.86rem; }
 
@@ -349,6 +358,15 @@
           <h3>Wastewater signals</h3>
           <span class="eyebrow">Last 7 days vs prior 4 weeks</span>
         </div>
+        <div id="wwMap" class="ww-map" role="region" aria-label="Map of wastewater sampling sites"></div>
+        <div class="map-legend">
+          <span><i class="dot" style="background:var(--alert)"></i>High (4× or more)</span>
+          <span><i class="dot" style="background:var(--watch)"></i>Elevated (2× or more)</span>
+          <span><i class="dot" style="background:var(--ok)"></i>Near baseline</span>
+          <span><i class="dot" style="background:var(--ink-2)"></i>Not enough samples</span>
+          <span>Tap a circle for details.</span>
+        </div>
+        <p class="muted" id="wwMapNote" hidden></p>
         <p class="muted" id="wwStatus"></p>
         <div class="table-box" id="wwTable"></div>
       </div>
@@ -390,7 +408,7 @@
           <li><b>Score pathogen type.</b> Each rule below adds points to one or more categories. The category with the most points wins. Confidence is that category's share of all points: 60% or more is high, 40–59% is moderate, below 40% is low.</li>
           <li><b>Detect clusters.</b> Reports from the last 7 days are counted by residence and syndrome. Three or more in one residence is a <b>Watch</b>. Five or more, or any meningitis-like report, is an <b>Alert</b>. The same syndrome at five or more students across one campus raises a campus-wide signal. A cluster is <b>Rising</b> when this week's count is at least double the week before.</li>
           <li><b>Recommend.</b> Each cluster shows the pathogens to look for, based on its syndrome and its most common pathogen category.</li>
-          <li><b>Cross-check with wastewater.</b> Sewage samples measure virus and bacteria genes shed by everyone on a sewer line, including people who never report. For each site and target, the last 7 days are compared with the 28 days before. A mean of 2× baseline is <b>elevated</b> and 4× is <b>high</b>. Values are divided by PMMoV when the lab provides it. A wastewater signal that matches a symptom cluster (same syndrome, same place) is marked <b>+ wastewater</b>. One with no matching cluster is a possible early warning.</li>
+          <li><b>Cross-check with wastewater.</b> Sewage samples measure virus and bacteria genes shed by everyone on a sewer line, including people who never report. For each site and target, the geometric mean (an average on a log scale) of the last 7 days is compared with the 28 days before. 2× baseline is <b>elevated</b> and 4× is <b>high</b>; a first detection after only non-detects is elevated. Values are divided by PMMoV, a virus every person sheds, when every sample in the series has it. The map shows each sampling site colored by its strongest signal. A wastewater signal that matches a symptom cluster (same syndrome, same place) is marked <b>+ wastewater</b>. One with no matching cluster is a possible early warning.</li>
         </ol>
       </div>
       <div class="panel">
@@ -428,6 +446,7 @@
 <script src="https://www.gstatic.com/firebasejs/10.12.2/firebase-app-compat.js"></script>
 <script src="https://www.gstatic.com/firebasejs/10.12.2/firebase-firestore-compat.js"></script>
 <script src="https://cdnjs.cloudflare.com/ajax/libs/qrcodejs/1.0.0/qrcode.min.js"></script>
+<script src="https://cdnjs.cloudflare.com/ajax/libs/leaflet/1.9.4/leaflet.min.js"></script>
 <!-- Your project's settings (edit this file, see README) -->
 <script src="firebase-config.js"></script>
 <!-- Wastewater targets and sampling sites (edit this file) -->
@@ -443,7 +462,6 @@ const CAMPUSES = [
   { id: "downtown", name: "Downtown Phoenix" },
   { id: "poly",     name: "Polytechnic" },
   { id: "west",     name: "West Valley" },
-  { id: "havasu",   name: "Lake Havasu" },
   { id: "online",   name: "Online only" },
 ];
 
@@ -466,8 +484,6 @@ const RESIDENCES = [
   { group: "West Valley on campus", campus: "west", items: [
     ["west-casadeoro", "Casa de Oro"],
     ["west-other", "Other West Valley housing"] ] },
-  { group: "Lake Havasu", campus: "havasu", items: [
-    ["havasu-housing", "Lake Havasu housing"] ] },
   { group: "Off campus", campus: null, items: [
     ["off-tempe", "Off campus near Tempe"],
     ["off-dtphx", "Off campus near Downtown"],
@@ -795,14 +811,10 @@ function makeCluster(kind, place, syndrome, g, level) {
    before, and flag a jump of 2x (elevated) or 4x (high).
    ===================================================================== */
 
-// PMMoV is a virus from human stool that is always in sewage, so dividing by it
-// corrects for rain, dilution and how many people used the sewer that day.
-function wwValue(s) {
-  const c = Number(s.copiesPerL), p = Number(s.pmmovPerL);
-  if (!Number.isFinite(c) || c < 0) return null;
-  return p > 0 ? c / p : c;
-}
-const mean = a => a.reduce((x, y) => x + y, 0) / a.length;
+// Geometric mean: wastewater levels change by multiples (10x, 100x), so we average
+// on a log scale. One unusual sample then can't dominate the result the way it
+// would with a plain average.
+const geoMean = a => Math.exp(a.reduce((sum, x) => sum + Math.log(x), 0) / a.length);
 
 function wastewaterSignals(samples) {
   const today = todayStr();
@@ -814,21 +826,40 @@ function wastewaterSignals(samples) {
   for (const k in groups) {
     const [site, target] = k.split("|");
     if (!WW_SITE[site] || !WW_TARGET[target]) continue;       // unknown site or target
-    const pts = groups[k].map(s => ({ date: s.date, v: wwValue(s) })).filter(p => p.v !== null);
-    const recent = pts.filter(p => p.date >= recentStart && p.date <= today);
-    const base = pts.filter(p => p.date >= baseStart && p.date < recentStart);
+    const rows = groups[k].filter(s => Number.isFinite(Number(s.copiesPerL)) && Number(s.copiesPerL) >= 0);
+
+    // PMMoV is a plant virus from food that every person sheds in stool, so its level
+    // tracks how much human waste is in the sample. Dividing by it corrects for rain,
+    // dilution and how many people used the sewer. FIX: only divide when EVERY sample
+    // in this series has PMMoV; mixing adjusted and raw numbers compares different units.
+    const normalized = rows.length > 0 && rows.every(s => Number(s.pmmovPerL) > 0);
+    const pts = rows.map(s => ({ date: s.date,
+      v: normalized ? Number(s.copiesPerL) / Number(s.pmmovPerL) : Number(s.copiesPerL) }));
+    const recent = pts.filter(p => p.date >= recentStart && p.date <= today).map(p => p.v);
+    const base = pts.filter(p => p.date >= baseStart && p.date < recentStart).map(p => p.v);
     if (recent.length < WW_MIN_RECENT || base.length < WW_MIN_BASE) continue;
-    const r = mean(recent.map(p => p.v)), b = mean(base.map(p => p.v));
+
+    // A non-detect (0) can't go into a logarithm, so it counts as half the lowest
+    // detected value in this series (a common stand-in when the lab's detection limit isn't given).
+    const detected = pts.map(p => p.v).filter(v => v > 0);
+    const floor = detected.length ? Math.min(...detected) / 2 : 0;
+    const level = vals => vals.every(v => v === 0) ? 0 : geoMean(vals.map(v => v > 0 ? v : floor));
+    const r = level(recent), b = level(base);
     const ratio = b > 0 ? r / b : (r > 0 ? Infinity : 0);
-    const level = ratio >= WW_ALERT ? "alert" : ratio >= WW_WATCH ? "watch" : null;
+    // FIX: a first detection after only non-detects is "elevated", never "high".
+    const lvl = ratio === Infinity ? "watch" : ratio >= WW_ALERT ? "alert" : ratio >= WW_WATCH ? "watch" : null;
     out.push({
-      site, target, level, ratio,
+      site, target, level: lvl, ratio, normalized,
       ratioText: ratio === Infinity ? "newly detected" : ratio.toFixed(1) + "× baseline",
-      last: recent.map(p => p.date).sort().pop(), n: recent.length,
+      last: pts.filter(p => p.date <= today).map(p => p.date).sort().pop(), n: recent.length,
     });
   }
   return out;
 }
+
+// Sort helper: high before elevated, then by size of the rise. (Handles Infinity safely.)
+const wwRank = x => x.level === "alert" ? 2 : x.level === "watch" ? 1 : 0;
+const wwSort = (a, b) => wwRank(b) - wwRank(a) || (a.ratio === b.ratio ? 0 : b.ratio > a.ratio ? 1 : -1);
 
 // Does this wastewater site cover the place of a symptom cluster?
 function siteCovers(site, c) {
@@ -838,6 +869,79 @@ function siteCovers(site, c) {
 // Same syndrome + overlapping place = the two signals support each other.
 function wwMatches(sig, c) {
   return WW_TARGET[sig.target].syndromes.includes(c.syndrome) && siteCovers(WW_SITE[sig.site], c);
+}
+
+
+/* =====================================================================
+   3c. WASTEWATER MAP — Leaflet draws the map, OpenStreetMap provides the
+   street tiles. One colored circle per sampling site, colored by its
+   worst signal. Site locations live in wastewater-config.js (lat, lng).
+   ===================================================================== */
+
+let wwMap = null, wwLayer = null, wwMapFitted = false;
+
+// Read a color token from the CSS, so the map matches the pills in both themes.
+function tokenColor(name) { return getComputedStyle(document.documentElement).getPropertyValue(name).trim(); }
+
+function mappedSites() {
+  return (window.WW_SITES || []).filter(s => Number.isFinite(s.lat) && Number.isFinite(s.lng));
+}
+
+function renderWastewaterMap(signals, clusters) {
+  if (!window.L) {                                  // Leaflet didn't load (offline, blocker)
+    $("wwMap").hidden = true;
+    $("wwMapNote").hidden = false;
+    $("wwMapNote").textContent = "The map couldn't load (it needs an internet connection). The table below lists the same signals.";
+    return;
+  }
+  if (!wwMap) {                                     // create the map once
+    wwMap = L.map("wwMap", { scrollWheelZoom: false });   // scrolling the page shouldn't zoom the map
+    L.tileLayer("https://tile.openstreetmap.org/{z}/{x}/{y}.png", {
+      maxZoom: 18,
+      attribution: '&copy; <a href="https://www.openstreetmap.org/copyright">OpenStreetMap</a> contributors',
+    }).addTo(wwMap);
+    wwLayer = L.layerGroup().addTo(wwMap);
+  }
+  wwLayer.clearLayers();                            // redraw the circles on every update
+
+  const colors = { alert: tokenColor("--alert"), watch: tokenColor("--watch"), ok: tokenColor("--ok"), none: tokenColor("--ink-2") };
+  const radius = { alert: 14, watch: 11, ok: 8, none: 7 };
+  const order = { none: 0, ok: 1, watch: 2, alert: 3 };
+
+  mappedSites()
+    .map(site => {
+      const sigs = signals.filter(x => x.site === site.id);
+      const worst = sigs.some(x => x.level === "alert") ? "alert"
+        : sigs.some(x => x.level === "watch") ? "watch" : sigs.length ? "ok" : "none";
+      return { site, sigs, worst };
+    })
+    // quiet sites first, worst last, so the most important circle is drawn on top
+    .sort((a, b) => order[a.worst] - order[b.worst] || (a.site.residences || []).length - (b.site.residences || []).length)
+    .forEach(({ site, sigs, worst }) => {
+      const up = sigs.filter(x => x.level).sort(wwSort);
+      const items = up.length
+        ? up.map(x => `<li><b>${esc(WW_TARGET[x.target].name)}</b>: ${x.level === "alert" ? "high" : "elevated"}, ${x.ratioText}` +
+            `${clusters.some(c => wwMatches(x, c)) ? " · matches a symptom cluster" : ""}</li>`).join("")
+        : `<li>${sigs.length ? `All ${sigs.length} targets near baseline` : "Not enough samples yet"}</li>`;
+      L.circleMarker([site.lat, site.lng], {
+        radius: radius[worst], color: "#FFFFFF", weight: 2, fillColor: colors[worst], fillOpacity: 0.9,
+      })
+        .bindTooltip(esc(site.name))
+        .bindPopup(`<b>${esc(site.name)}</b><br><span style="color:#5E5459">${(site.residences || []).length ? "Building sewer line" : "Campus sewer"}</span><ul>${items}</ul>`)
+        .addTo(wwLayer);
+    });
+  fitWastewaterMap();
+}
+
+// Zoom to show every site. Only works while the dashboard is visible (a hidden
+// map has no size), so showScreen() calls this again when the dashboard opens.
+function fitWastewaterMap() {
+  if (!wwMap || wwMapFitted || $("screen-dashboard").hidden) return;
+  wwMap.invalidateSize();
+  const pts = mappedSites().map(s => [s.lat, s.lng]);
+  if (pts.length) wwMap.fitBounds(pts, { padding: [30, 30], maxZoom: 14 });
+  else wwMap.setView([33.45, -111.95], 10);       // Phoenix area
+  wwMapFitted = true;
 }
 
 
@@ -1220,13 +1324,13 @@ function renderRecent(reports) {
 }
 
 function renderWastewater(signals, clusters) {
+  renderWastewaterMap(signals, clusters);
   if (!signals.length) {
     $("wwStatus").textContent = "";
     $("wwTable").innerHTML = `<p class="muted">No wastewater signals yet. Each site and target needs at least ${WW_MIN_RECENT} samples this week and ${WW_MIN_BASE} in the prior four weeks. Load data with wastewater-import.html.</p>`;
     return;
   }
-  const rank = x => x.level === "alert" ? 2 : x.level === "watch" ? 1 : 0;
-  const up = signals.filter(x => x.level).sort((a, b) => rank(b) - rank(a) || b.ratio - a.ratio);
+  const up = signals.filter(x => x.level).sort(wwSort);
   const quiet = signals.length - up.length;
   const early = up.filter(x => !clusters.some(c => wwMatches(x, c))).length;
   $("wwStatus").textContent = up.length
@@ -1239,7 +1343,7 @@ function renderWastewater(signals, clusters) {
       return `<tr><td>${esc(WW_SITE[x.site].name)}</td>
         <td>${esc(t.name)} <span class="muted">· ${t.category}</span></td>
         <td><span class="pill ${x.level === "alert" ? "alert-p" : "watch-p"}">${x.level === "alert" ? "high" : "elevated"}</span></td>
-        <td class="mono">${x.ratioText}</td>
+        <td class="mono">${x.ratioText}<br><span class="muted">${x.normalized ? "PMMoV-adjusted" : "raw copies/L"}</span></td>
         <td class="mono">${shortDate(x.last)}</td>
         <td>${match.length ? "Matches " + match.map(c => esc(c.place)).join(", ") : `<span class="muted">None yet.</span> ${esc(t.hint)}`}</td></tr>`;
     }).join("") + `</tbody></table>`;
@@ -1266,6 +1370,7 @@ function showScreen(name) {
   document.querySelectorAll("[data-tab]").forEach(b => b.setAttribute("aria-selected", String(b.dataset.tab === name)));
   try { localStorage.setItem("sentinel-tab", name); } catch (e) {}
   window.scrollTo(0, 0);
+  if (name === "dashboard" && wwMap) setTimeout(() => { wwMap.invalidateSize(); fitWastewaterMap(); }, 0);
 }
 document.querySelectorAll("[data-tab]").forEach(b => b.addEventListener("click", () => showScreen(b.dataset.tab)));
 $("showDemo").addEventListener("change", e => { state.showDemo = e.target.checked; renderDashboard(); });
