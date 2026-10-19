@@ -56,6 +56,23 @@ service cloud.firestore {
         && request.auth.token.email in ['YOUR-EMAIL@asu.edu'];
     }
 
+    // One SARS-CoV-2 sequencing result: lineage shares for one site and date (from Freyja).
+    function validLineages(d) {
+      return d.keys().hasOnly(['site', 'date', 'lineages', 'submittedAt', 'demo'])
+        && d.keys().hasAll(['site', 'date', 'lineages', 'submittedAt'])
+        && d.site is string && d.site.size() <= 40
+        && d.date is string && d.date.matches('[0-9]{4}-[0-9]{2}-[0-9]{2}')
+        && d.lineages is list && d.lineages.size() >= 1 && d.lineages.size() <= 40
+        && d.submittedAt is string && d.submittedAt.size() <= 40
+        && (!('demo' in d) || d.demo is bool);
+    }
+
+    match /lineages/{sampleId} {
+      allow read: if true;
+      allow create: if isLabUploader() && validLineages(request.resource.data);
+      allow update, delete: if false;
+    }
+
     match /wastewater/{sampleId} {
       allow read: if true;
       allow create: if isLabUploader() && validWastewater(request.resource.data);
