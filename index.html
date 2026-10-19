@@ -58,6 +58,8 @@
     --s-skin: #B7791F;
     --s-neuro: #C53030;
     --s-other: #8A8286;
+    /* SARS-CoV-2 lineage colors: categorical slots in fixed order, checked for color-blind safety */
+    --l1: #2a78d6; --l2: #eb6834; --l3: #1baf7a; --l4: #eda100; --l5: #6250d6; --l-other: #A9A3A6;
     --f-display: "Archivo", "Arial Narrow", system-ui, sans-serif;
     --f-body: "IBM Plex Sans", system-ui, -apple-system, "Segoe UI", sans-serif;
     --f-mono: "IBM Plex Mono", ui-monospace, "SF Mono", Menlo, monospace;
@@ -70,6 +72,7 @@
       --accent: #E57A99; --accent-ink: #1A0A10; --gold: #FFC627; --gold-ink: #3A2C00;
       --alert: #FF8B66; --alert-bg: #3B1F16; --watch: #F2C14E; --watch-bg: #372D12; --ok: #71CF99; --ok-bg: #173226;
       --s-ili: #A78BFA; --s-resp: #63A4E8; --s-gi: #2DD4BF; --s-skin: #E0B04F; --s-neuro: #F87171; --s-other: #A0979B;
+      --l1: #3987e5; --l2: #d95926; --l3: #199e70; --l4: #c98500; --l5: #9085e9; --l-other: #6E676B;
     }
   }
   :root[data-theme="dark"] {
@@ -78,6 +81,7 @@
     --accent: #E57A99; --accent-ink: #1A0A10; --gold: #FFC627; --gold-ink: #3A2C00;
     --alert: #FF8B66; --alert-bg: #3B1F16; --watch: #F2C14E; --watch-bg: #372D12; --ok: #71CF99; --ok-bg: #173226;
     --s-ili: #A78BFA; --s-resp: #63A4E8; --s-gi: #2DD4BF; --s-skin: #E0B04F; --s-neuro: #F87171; --s-other: #A0979B;
+      --l1: #3987e5; --l2: #d95926; --l3: #199e70; --l4: #c98500; --l5: #9085e9; --l-other: #6E676B;
   }
 
   /* ---------- Base ---------- */
@@ -216,6 +220,23 @@
   .dot { width: 12px; height: 12px; border-radius: 50%; display: inline-block; border: 2px solid #FFFFFF; box-shadow: 0 0 0 1px var(--line); }
   .leaflet-popup-content { font: 13px/1.45 var(--f-body); color: #1F1A1C; }
   .leaflet-popup-content ul { margin: 6px 0 0; padding-left: 18px; }
+  /* Sparklines and lead-time timelines in tables */
+  .spark, .lead-line { display: block; overflow: visible; }
+  .lead-legend { display: flex; flex-wrap: wrap; gap: 6px 16px; font-size: 0.8rem; color: var(--ink-2); }
+  .lead-legend span { display: inline-flex; align-items: center; gap: 6px; }
+  .lead-pos { color: var(--ok); font-weight: 600; }
+  .lead-neg { color: var(--ink-2); font-weight: 600; }
+  /* Genomics panel: closed until opened, to keep the dashboard calm */
+  details.panel > summary { cursor: pointer; list-style: none; display: flex; justify-content: space-between; align-items: baseline; gap: 10px; flex-wrap: wrap; }
+  details.panel > summary::-webkit-details-marker { display: none; }
+  details.panel > summary h3::before { content: "\25B8  "; color: var(--ink-2); }
+  details.panel[open] > summary h3::before { content: "\25BE  "; }
+  details.panel { display: block; min-width: 0; }
+  .details-body { display: grid; gap: 12px; margin-top: 12px; min-width: 0; }
+  .chart-box.small svg { min-width: 420px; }
+  /* At a glance */
+  .glance { background: var(--surface); border: 1px solid var(--line); border-top: 4px solid var(--accent); border-radius: 12px; padding: 18px; display: grid; gap: 10px; }
+  .glance p { max-width: 75ch; font-size: 1.02rem; line-height: 1.6; }
   .two-col { display: grid; grid-template-columns: repeat(auto-fit, minmax(320px, 1fr)); gap: 16px; }
   .toolbar { display: flex; gap: 12px; align-items: center; flex-wrap: wrap; font-size: 0.86rem; }
 
@@ -373,6 +394,36 @@
 
       <div class="panel">
         <div class="panel-head">
+          <h3>Did wastewater see it first?</h3>
+          <span class="eyebrow">Lead time</span>
+        </div>
+        <p class="muted">Lead time is the number of days between the wastewater rise (the first sample at 2× baseline or more) and the first symptom onset in the matching cluster.</p>
+        <div class="lead-legend">
+          <span><svg width="12" height="12" aria-hidden="true"><path d="M6 1l5 5-5 5-5-5z" fill="var(--accent)"/></svg>Wastewater rose</span>
+          <span><svg width="12" height="12" aria-hidden="true"><circle cx="6" cy="6" r="4.5" fill="var(--ink)"/></svg>First symptoms</span>
+          <span><svg width="12" height="12" aria-hidden="true"><path d="M6 1.5l5 9H1z" fill="var(--ink-2)"/></svg>First report</span>
+        </div>
+        <div class="table-box" id="wwLead"></div>
+      </div>
+
+      <details class="panel" id="genomics">
+        <summary><h3>SARS-CoV-2 genomics</h3><span class="eyebrow">Lineage mix from sequencing (Freyja)</span></summary>
+        <div class="details-body">
+        <p class="muted">Labs sequence the SARS-CoV-2 RNA in each sample and estimate what share comes from each lineage. Wastewater mixes virus from many people, so these shares are estimates for the whole sewershed.</p>
+        <label class="field" style="max-width:320px">Sampling site
+          <select id="lineageSite"></select>
+        </label>
+        <p id="lineageNote"></p>
+        <div class="chart-box small" id="lineageChart"></div>
+        <div class="legend" id="lineageLegend"></div>
+        <h3 style="font-size:.95rem">Genetic diversity</h3>
+        <p class="muted">Effective number of lineages (e to the power of the Shannon index). It rises while a new lineage is moving in and falls once one lineage dominates.</p>
+        <div class="chart-box small" id="diversityChart"></div>
+        </div>
+      </details>
+
+      <div class="panel">
+        <div class="panel-head">
           <h3>Epidemic curve</h3>
           <span class="eyebrow">Reports by symptom-onset date · 14 days</span>
         </div>
@@ -395,6 +446,12 @@
         <div class="panel-head"><h3>Latest reports</h3><span class="eyebrow">Anonymous</span></div>
         <div class="table-box" id="recent"></div>
       </div>
+
+      <!-- At a glance: a plain-language summary built from the numbers above -->
+      <section class="glance" aria-live="polite">
+        <span class="eyebrow">At a glance</span>
+        <p id="glance">Waiting for data…</p>
+      </section>
     </section>
 
     <!-- ===================== SCREEN 3: METHOD ===================== -->
@@ -409,6 +466,8 @@
           <li><b>Detect clusters.</b> Reports from the last 7 days are counted by residence and syndrome. Three or more in one residence is a <b>Watch</b>. Five or more, or any meningitis-like report, is an <b>Alert</b>. The same syndrome at five or more students across one campus raises a campus-wide signal. A cluster is <b>Rising</b> when this week's count is at least double the week before.</li>
           <li><b>Recommend.</b> Each cluster shows the pathogens to look for, based on its syndrome and its most common pathogen category.</li>
           <li><b>Cross-check with wastewater.</b> Sewage samples measure virus and bacteria genes shed by everyone on a sewer line, including people who never report. For each site and target, the geometric mean (an average on a log scale) of the last 7 days is compared with the 28 days before. 2× baseline is <b>elevated</b> and 4× is <b>high</b>; a first detection after only non-detects is elevated. Values are divided by PMMoV, a virus every person sheds, when every sample in the series has it. The map shows each sampling site colored by its strongest signal. A wastewater signal that matches a symptom cluster (same syndrome, same place) is marked <b>+ wastewater</b>. One with no matching cluster is a possible early warning.</li>
+          <li><b>Measure lead time.</b> The wastewater rise date is the first sample in the last 21 days at 2× baseline or more. Lead time is the number of days from that date to the first symptom onset in the matching cluster; positive means wastewater saw it first.</li>
+          <li><b>Track SARS-CoV-2 lineages.</b> Sequencing results (lineage shares from a tool like Freyja) are shown as a stacked bar per sample. Diversity is the Shannon index, H = −Σ p ln p, shown as e<sup>H</sup>, the effective number of lineages.</li>
         </ol>
       </div>
       <div class="panel">
@@ -448,9 +507,10 @@
 <script src="https://cdnjs.cloudflare.com/ajax/libs/qrcodejs/1.0.0/qrcode.min.js"></script>
 <script src="https://cdnjs.cloudflare.com/ajax/libs/leaflet/1.9.4/leaflet.min.js"></script>
 <!-- Your project's settings (edit this file, see README) -->
-<script src="firebase-config.js"></script>
+<script src="firebase-config.js?v=4"></script>
 <!-- Wastewater targets and sampling sites (edit this file) -->
-<script src="wastewater-config.js"></script>
+<!-- "?v=3" makes browsers fetch a fresh copy after an update; raise the number when you edit the file -->
+<script src="wastewater-config.js?v=4"></script>
 
 <script>
 /* =====================================================================
@@ -797,6 +857,7 @@ function makeCluster(kind, place, syndrome, g, level) {
     rising: count >= 2 * Math.max(1, g.previous),
     category, categoryShare: Math.round(100 * tally[category] / count),
     first: onsets[0], last: onsets[onsets.length - 1],
+    firstReported: g.current.map(r => localDate(r.submittedAt)).filter(Boolean).sort()[0] || null,
     sharedMeal: g.current.filter(r => r.sharedMeal).length,
     lookFor: lookFor(syndrome, category),
   };
@@ -848,9 +909,20 @@ function wastewaterSignals(samples) {
     const ratio = b > 0 ? r / b : (r > 0 ? Infinity : 0);
     // FIX: a first detection after only non-detects is "elevated", never "high".
     const lvl = ratio === Infinity ? "watch" : ratio >= WW_ALERT ? "alert" : ratio >= WW_WATCH ? "watch" : null;
+
+    // Series for the sparkline: every sample from the baseline window to today, oldest first.
+    const series = pts.filter(p => p.date >= baseStart && p.date <= today)
+      .sort((x, y) => x.date < y.date ? -1 : 1)
+      .map(p => ({ date: p.date, v: p.v > 0 ? p.v : floor }));
+    // Rise date: the first sample in the last 21 days at 2x baseline or more (any detection if baseline is zero).
+    const riseFrom = addDays(today, -20);
+    const rise = lvl ? series.find(p => p.date >= riseFrom && (b > 0 ? p.v >= WW_WATCH * b : p.v > 0)) : null;
+
     out.push({
-      site, target, level: lvl, ratio, normalized,
-      ratioText: ratio === Infinity ? "newly detected" : ratio.toFixed(1) + "× baseline",
+      site, target, level: lvl, ratio, normalized, series, base: b, baseStart,
+      riseDate: rise ? rise.date : null,
+      // Round DOWN to one decimal, so 3.99x shows as 3.9x and never looks like it passed the 4x line.
+      ratioText: ratio === Infinity ? "newly detected" : (Math.floor(ratio * 10) / 10).toFixed(1) + "× baseline",
       last: pts.filter(p => p.date <= today).map(p => p.date).sort().pop(), n: recent.length,
     });
   }
@@ -904,6 +976,15 @@ function renderWastewaterMap(signals, clusters) {
   }
   wwLayer.clearLayers();                            // redraw the circles on every update
 
+  // Say so if sites can't be placed, instead of showing an empty map.
+  const allSites = window.WW_SITES || [], placed = mappedSites().length;
+  $("wwMapNote").hidden = placed === allSites.length;
+  $("wwMapNote").textContent = !allSites.length
+    ? "No sampling sites found. Check that wastewater-config.js is uploaded next to index.html."
+    : placed < allSites.length
+      ? `${allSites.length - placed} of ${allSites.length} sampling sites have no map coordinates (lat, lng) in wastewater-config.js. If you just updated that file, reload the page.`
+      : "";
+
   const colors = { alert: tokenColor("--alert"), watch: tokenColor("--watch"), ok: tokenColor("--ok"), none: tokenColor("--ink-2") };
   const radius = { alert: 14, watch: 11, ok: 8, none: 7 };
   const order = { none: 0, ok: 1, watch: 2, alert: 3 };
@@ -946,6 +1027,90 @@ function fitWastewaterMap() {
 
 
 /* =====================================================================
+   3d. LEAD TIME — did wastewater rise before people got sick?
+   For each symptom cluster with a matching wastewater signal:
+   lead = days from the wastewater rise to the first symptom onset.
+   Positive = wastewater first.
+   ===================================================================== */
+
+function leadTimes(signals, clusters) {
+  const rows = [];
+  clusters.forEach(c => {
+    // If several sewer sites match this cluster, use the one that rose first.
+    const sig = (c.ww || []).filter(s => s.riseDate).sort((a, b) => a.riseDate < b.riseDate ? -1 : 1)[0];
+    if (sig) rows.push({ cluster: c, sig, rise: sig.riseDate, onset: c.first, reported: c.firstReported,
+      lead: daysBetween(sig.riseDate, c.first) });
+  });
+  // Rising signals with no matching cluster: wastewater is ahead and reports haven't arrived.
+  signals.filter(s => s.level && s.riseDate && !clusters.some(c => wwMatches(s, c)))
+    .forEach(sig => rows.push({ cluster: null, sig, rise: sig.riseDate, onset: null, reported: null,
+      lead: daysBetween(sig.riseDate, todayStr()) }));
+  return rows.sort((a, b) => (a.cluster ? 0 : 1) - (b.cluster ? 0 : 1) || b.lead - a.lead);
+}
+
+
+/* =====================================================================
+   3e. SARS-CoV-2 LINEAGES — genetic diversity from sequencing
+   Each lineage sample = one site + date + a list of { lineage, share },
+   the output of a tool like Freyja. Shares are fractions (0 to 1).
+   ===================================================================== */
+
+// Colors follow the lineage, not its rank: the order in WW_LINEAGES fixes each color.
+const LINEAGE_SLOTS = ["var(--l1)", "var(--l2)", "var(--l3)", "var(--l4)", "var(--l5)"];
+function lineageColor(name) {
+  const i = (window.WW_LINEAGES || []).indexOf(name);
+  return i >= 0 && i < LINEAGE_SLOTS.length ? LINEAGE_SLOTS[i] : "var(--l-other)";
+}
+// Named lineages keep their own color; anything else is counted as "Other".
+function lineageKey(name) {
+  const i = (window.WW_LINEAGES || []).indexOf(name);
+  return i >= 0 && i < LINEAGE_SLOTS.length ? name : "Other";
+}
+
+// One sample -> { date, shares: { lineage: fraction } } with shares rescaled to add up to 1.
+function lineageShares(doc) {
+  const shares = {};
+  (Array.isArray(doc.lineages) ? doc.lineages : []).forEach(x => {
+    const f = Number(x && x.share);
+    if (x && typeof x.lineage === "string" && Number.isFinite(f) && f > 0) {
+      const k = lineageKey(x.lineage);
+      shares[k] = (shares[k] || 0) + f;
+    }
+  });
+  const total = Object.values(shares).reduce((a, b) => a + b, 0);
+  if (total <= 0) return null;
+  for (const k in shares) shares[k] /= total;
+  return { date: doc.date, site: doc.site, shares };
+}
+
+// Shannon diversity H = -sum(p * ln p). e^H is the "effective number of lineages":
+// 3.0 means as diverse as three equally common lineages.
+function diversity(shares) {
+  const H = -Object.values(shares).reduce((sum, p) => sum + (p > 0 ? p * Math.log(p) : 0), 0);
+  return { H, effective: Math.exp(H) };
+}
+
+// Samples for one site, oldest first (last 8 samples).
+function lineageSeries(site) {
+  return state.lineages.filter(d => d.site === site).map(lineageShares).filter(Boolean)
+    .sort((a, b) => a.date < b.date ? -1 : 1).slice(-8);
+}
+
+// Biggest rise in share between the earliest and latest of the last 5 samples (about 4 weeks).
+function biggestLineageChange(series) {
+  const recent = series.slice(-5);
+  if (recent.length < 2) return null;
+  const first = recent[0], last = recent[recent.length - 1];
+  let best = null;
+  Object.keys(last.shares).filter(k => k !== "Other").forEach(k => {
+    const change = last.shares[k] - (first.shares[k] || 0);
+    if (!best || change > best.change) best = { lineage: k, change, from: first.shares[k] || 0, to: last.shares[k], fromDate: first.date, toDate: last.date };
+  });
+  return best && best.change >= 0.1 ? best : null;
+}
+
+
+/* =====================================================================
    4. DATA STORAGE — Firebase Cloud Firestore
    Each report is one document in the "reports" collection.
    onSnapshot() keeps a live connection open: whenever ANY device adds a
@@ -954,7 +1119,7 @@ function fitWastewaterMap() {
    mode and keeps reports in memory for this visit only.
    ===================================================================== */
 
-const state = { reports: [], wastewater: [], db: null, showDemo: true, lastUpdate: null };
+const state = { reports: [], wastewater: [], lineages: [], lineageSite: null, db: null, showDemo: true, lastUpdate: null };
 
 // Find the project settings. Accepts either window.FIREBASE_CONFIG (our file)
 // or "const firebaseConfig = {...}" pasted straight from the Firebase console.
@@ -983,6 +1148,7 @@ function connectDatabase() {
   firebase.initializeApp(getConfig());
   state.db = firebase.firestore();
   subscribeWastewater();
+  subscribeLineages();
 
   // Subscribe ONCE. The callback runs now and again whenever anyone submits.
   state.db.collection("reports").onSnapshot(
@@ -1008,6 +1174,16 @@ function subscribeWastewater() {
     err => showBanner(err.code === "permission-denied"
       ? "Wastewater data couldn't be read. Publish the updated firestore.rules (see README)."
       : "Wastewater updates stopped (" + err.code + ").")
+  );
+}
+
+// SARS-CoV-2 lineage samples from sequencing, last 70 days.
+function subscribeLineages() {
+  state.db.collection("lineages").where("date", ">=", addDays(todayStr(), -70)).onSnapshot(
+    snap => { state.lineagesAll = snap.docs.map(d => ({ id: d.id, ...d.data() })); renderDashboard(); },
+    err => showBanner(err.code === "permission-denied"
+      ? "Lineage data couldn't be read. Publish the updated firestore.rules (see README)."
+      : "Lineage updates stopped (" + err.code + ").")
   );
 }
 
@@ -1172,6 +1348,7 @@ function renderDashboard() {
   const prev = reports.filter(r => r.onset >= pStart && r.onset < wStart);
   const clusters = detectClusters(reports);
   const wwSignals = wastewaterSignals(visibleWastewater());
+  state.lineages = (state.lineagesAll || []).filter(d => d && WW_SITE[d.site] && DATE_RE.test(d.date || "") && (state.showDemo || !d.demo));
   clusters.forEach(c => { c.ww = wwSignals.filter(sig => sig.level && wwMatches(sig, c)); });
   const wwUp = wwSignals.filter(sig => sig.level);
   const alerts = clusters.filter(c => c.level === "alert").length;
@@ -1207,6 +1384,9 @@ function renderDashboard() {
   renderHeatmap(week);
   renderCategoryTable(week);
   renderRecent(reports);
+  renderLeadTimes(wwSignals, clusters);
+  renderGenomics();
+  renderGlance({ week, prev, clusters, wwSignals });
 }
 
 function kpi(label, num, sub) {
@@ -1233,7 +1413,7 @@ function alertCard(c) {
       ${c.sharedMeal ? `<span>${c.sharedMeal} ate at a shared meal</span>` : ""}
     </div>
     <p>Likely pathogen type: <b>${cat}</b> <span class="muted">(${c.categoryShare}% of reports)</span></p>
-    ${c.ww && c.ww.length ? `<p><b>Wastewater agrees:</b> ${c.ww.map(x => `${esc(WW_TARGET[x.target].name)} ${x.ratioText} at ${esc(WW_SITE[x.site].name)}`).join("; ")}</p>` : ""}
+    ${c.ww && c.ww.length ? `<p><b>Wastewater agrees:</b> ${c.ww.map(x => `${esc(WW_TARGET[x.target].name)} ${x.ratioText} at ${esc(WW_SITE[x.site].name)}${x.riseDate ? `, rising since ${shortDate(x.riseDate)}` : ""}`).join("; ")}</p>` : ""}
     <div class="lookfor"><b>Look for:</b> ${c.lookFor}</div>
   </article>`;
 }
@@ -1337,16 +1517,192 @@ function renderWastewater(signals, clusters) {
     ? `${up.length} elevated${early ? `, ${early} with no matching symptom cluster yet (possible early warning)` : ""}. ${quiet} other site/target pairs are near baseline.`
     : `All ${signals.length} tracked site/target pairs are near baseline.`;
   if (!up.length) { $("wwTable").innerHTML = ""; return; }
-  $("wwTable").innerHTML = `<table><thead><tr><th>Site</th><th>Target</th><th>Level</th><th>vs baseline</th><th>Last sample</th><th>Symptom reports</th></tr></thead><tbody>` +
+  $("wwTable").innerHTML = `<table><thead><tr><th>Site</th><th>Target</th><th>Level</th><th>vs baseline</th><th>5 weeks</th><th>Last sample</th><th>Symptom reports</th></tr></thead><tbody>` +
     up.map(x => {
       const t = WW_TARGET[x.target], match = clusters.filter(c => wwMatches(x, c));
       return `<tr><td>${esc(WW_SITE[x.site].name)}</td>
         <td>${esc(t.name)} <span class="muted">· ${t.category}</span></td>
         <td><span class="pill ${x.level === "alert" ? "alert-p" : "watch-p"}">${x.level === "alert" ? "high" : "elevated"}</span></td>
         <td class="mono">${x.ratioText}<br><span class="muted">${x.normalized ? "PMMoV-adjusted" : "raw copies/L"}</span></td>
+        <td>${sparkline(x)}</td>
         <td class="mono">${shortDate(x.last)}</td>
         <td>${match.length ? "Matches " + match.map(c => esc(c.place)).join(", ") : `<span class="muted">None yet.</span> ${esc(t.hint)}`}</td></tr>`;
     }).join("") + `</tbody></table>`;
+}
+
+// Tiny line chart of one site + target: the line is the samples, the dashed line is the baseline.
+// Log scale, because wastewater levels change by multiples.
+function sparkline(sig) {
+  const W = 104, H = 28, pad = 4, pts = sig.series;
+  if (pts.length < 2) return "";
+  const days = WW_RECENT_DAYS + WW_BASE_DAYS - 1;
+  const lv = pts.map(p => Math.log10(p.v));
+  if (sig.base > 0) lv.push(Math.log10(sig.base));
+  const lo = Math.min(...lv), hi = Math.max(...lv), span = hi - lo || 1;
+  const x = d => pad + (W - 2 * pad) * daysBetween(sig.baseStart, d) / days;
+  const y = v => H - pad - (H - 2 * pad) * (Math.log10(v) - lo) / span;
+  const path = pts.map((p, i) => (i ? "L" : "M") + x(p.date).toFixed(1) + " " + y(p.v).toFixed(1)).join(" ");
+  const end = pts[pts.length - 1];
+  const col = sig.level === "alert" ? "var(--alert)" : sig.level === "watch" ? "var(--watch)" : "var(--ok)";
+  return `<svg class="spark" width="${W}" height="${H}" viewBox="0 0 ${W} ${H}" role="img" aria-label="Five-week trend, ${sig.ratioText}">
+    <title>${pts.length} samples over 5 weeks. Dashed line = baseline. Latest: ${sig.ratioText}</title>
+    ${sig.base > 0 ? `<line x1="${pad}" x2="${W - pad}" y1="${y(sig.base).toFixed(1)}" y2="${y(sig.base).toFixed(1)}" stroke="var(--ink-2)" stroke-width="1" stroke-dasharray="3 3"/>` : ""}
+    <path d="${path}" fill="none" stroke="var(--ink-2)" stroke-width="1.5" stroke-linejoin="round"/>
+    <circle cx="${x(end.date).toFixed(1)}" cy="${y(end.v).toFixed(1)}" r="3.5" fill="${col}" stroke="var(--surface)" stroke-width="1.5"/>
+  </svg>`;
+}
+
+// Lead-time table with a mini timeline per row (last 21 days).
+function renderLeadTimes(signals, clusters) {
+  const rows = leadTimes(signals, clusters);
+  if (!rows.length) { $("wwLead").innerHTML = `<p class="muted">No rising wastewater signal yet, so there is no lead time to measure.</p>`; return; }
+  const today = todayStr(), start = addDays(today, -20), W = 190, H = 26;
+  const x = d => (8 + (W - 16) * Math.min(20, Math.max(0, daysBetween(start, d))) / 20).toFixed(1);
+  const line = r => `<svg class="lead-line" width="${W}" height="${H}" viewBox="0 0 ${W} ${H}" role="img" aria-label="Timeline of the last 21 days">
+      <line x1="8" x2="${W - 8}" y1="13" y2="13" stroke="var(--line)" stroke-width="2"/>
+      <line x1="${x(r.rise)}" x2="${r.onset ? x(r.onset) : x(today)}" y1="13" y2="13" stroke="var(--ok)" stroke-width="4" stroke-linecap="round" opacity="0.6"/>
+      <path d="M${x(r.rise)} 7l6 6-6 6-6-6z" fill="var(--accent)"><title>Wastewater rose ${shortDate(r.rise)}</title></path>
+      ${r.onset ? `<circle cx="${x(r.onset)}" cy="13" r="5" fill="var(--ink)" stroke="var(--surface)" stroke-width="1.5"><title>First symptoms ${shortDate(r.onset)}</title></circle>` : ""}
+      ${r.reported ? `<path d="M${x(r.reported)} 7l6 11h-12z" fill="var(--ink-2)" stroke="var(--surface)" stroke-width="1"><title>First report ${shortDate(r.reported)}</title></path>` : ""}
+    </svg>`;
+  $("wwLead").innerHTML = `<table><thead><tr><th>Cluster</th><th>Wastewater signal</th><th>Rose</th><th>First symptoms</th><th>First report</th><th>Lead time</th><th>Last 21 days</th></tr></thead><tbody>` +
+    rows.map(r => {
+      const t = WW_TARGET[r.sig.target], site = WW_SITE[r.sig.site];
+      const days = n => `${n} day${n === 1 ? "" : "s"}`;
+      const lead = !r.cluster ? `<span class="lead-pos">${days(r.lead)} so far</span><br><span class="muted">no matching reports yet</span>`
+        : r.lead > 0 ? `<span class="lead-pos">${days(r.lead)}</span><br><span class="muted">wastewater first</span>`
+        : r.lead === 0 ? `<span class="lead-neg">0 days</span><br><span class="muted">same day</span>`
+        : `<span class="lead-neg">${days(-r.lead)} later</span><br><span class="muted">symptoms first</span>`;
+      return `<tr><td>${r.cluster ? esc(r.cluster.place) + `<br><span class="muted">${syndromeById[r.cluster.syndrome].name}</span>` : `<span class="muted">Possible early warning</span>`}</td>
+        <td>${esc(t.name)}<br><span class="muted">${esc(site.name)}</span></td>
+        <td class="mono">${shortDate(r.rise)}</td>
+        <td class="mono">${r.onset ? shortDate(r.onset) : "—"}</td>
+        <td class="mono">${r.reported ? shortDate(r.reported) : "—"}</td>
+        <td>${lead}</td><td>${line(r)}</td></tr>`;
+    }).join("") + `</tbody></table>`;
+}
+
+// Stacked bars of lineage shares by sample date, plus a diversity line underneath.
+function renderGenomics() {
+  const sites = [...new Set(state.lineages.map(d => d.site))];
+  const sel = $("lineageSite");
+  if (!sites.length) {
+    sel.innerHTML = "";
+    $("lineageNote").textContent = "No lineage data yet. Load it with wastewater-import.html.";
+    $("lineageChart").innerHTML = $("lineageLegend").innerHTML = $("diversityChart").innerHTML = "";
+    return;
+  }
+  if (!sites.includes(state.lineageSite)) state.lineageSite = sites.includes("tempe-campus") ? "tempe-campus" : sites[0];
+  const options = sites.map(id => `<option value="${esc(id)}"${id === state.lineageSite ? " selected" : ""}>${esc(WW_SITE[id].name)}</option>`).join("");
+  if (sel.dataset.options !== options) { sel.innerHTML = options; sel.dataset.options = options; }
+
+  const series = lineageSeries(state.lineageSite);
+  if (!series.length) { $("lineageChart").innerHTML = $("diversityChart").innerHTML = ""; return; }
+  const names = [...(window.WW_LINEAGES || []).slice(0, LINEAGE_SLOTS.length), "Other"]
+    .filter(k => series.some(s => s.shares[k]));
+  const change = biggestLineageChange(series);
+  $("lineageNote").innerHTML = change
+    ? `<b>${esc(change.lineage)}</b> rose from ${Math.round(100 * change.from)}% to ${Math.round(100 * change.to)}% of SARS-CoV-2 at this site between ${shortDate(change.fromDate)} and ${shortDate(change.toDate)}.`
+    : `No lineage changed by more than 10 percentage points in the last 4 weeks.`;
+
+  // Stacked bars: one per sample, segments in the fixed lineage order, 2px gap between segments.
+  const W = 640, H = 220, L = 40, R = 10, T = 10, B = 28, n = series.length;
+  const slot = (W - L - R) / n, bw = Math.min(56, slot * 0.7);
+  const y = f => T + (H - T - B) * (1 - f);
+  let svg = `<svg viewBox="0 0 ${W} ${H}" role="img" aria-label="Lineage shares by sample date">`;
+  [0, 0.25, 0.5, 0.75, 1].forEach(f => {
+    svg += `<line x1="${L}" x2="${W - R}" y1="${y(f)}" y2="${y(f)}" stroke="var(--line)"/>`;
+    svg += `<text x="${L - 6}" y="${y(f) + 4}" text-anchor="end" font-size="11" font-family="IBM Plex Mono, monospace" fill="var(--ink-2)">${f * 100}%</text>`;
+  });
+  series.forEach((s, i) => {
+    const cx = L + slot * i + slot / 2;
+    let acc = 0;
+    names.forEach(k => {
+      const f = s.shares[k] || 0;
+      if (!f) return;
+      const y0 = y(acc), y1 = y(acc + f), h = Math.max(0, y0 - y1 - 2);
+      svg += `<rect x="${(cx - bw / 2).toFixed(1)}" y="${y1.toFixed(1)}" width="${bw.toFixed(1)}" height="${h.toFixed(1)}" rx="2" fill="${lineageColor(k)}"><title>${shortDate(s.date)}: ${esc(k)} ${Math.round(100 * f)}%</title></rect>`;
+      if (f >= 0.15) svg += `<text x="${cx.toFixed(1)}" y="${((y0 + y1) / 2 + 3).toFixed(1)}" text-anchor="middle" font-size="11" font-weight="600" fill="#FFFFFF" pointer-events="none">${Math.round(100 * f)}</text>`;
+      acc += f;
+    });
+    svg += `<text x="${cx.toFixed(1)}" y="${H - 8}" text-anchor="middle" font-size="11" font-family="IBM Plex Mono, monospace" fill="var(--ink-2)">${shortDate(s.date)}</text>`;
+  });
+  $("lineageChart").innerHTML = svg + `</svg>`;
+  $("lineageLegend").innerHTML = names.map(k => `<span><i class="sw" style="background:${lineageColor(k)}"></i>${esc(k)}</span>`).join("") +
+    `<span>Numbers on bars are percentages.</span>`;
+
+  // Diversity line, using the same x positions as the bars.
+  const dv = series.map(s => diversity(s.shares).effective);
+  const DH = 120, DT = 18, DB = 26, top = Math.max(2, Math.ceil(Math.max(...dv)));
+  const dy = v => DT + (DH - DT - DB) * (1 - (v - 1) / (top - 1));
+  const px = i => L + slot * i + slot / 2;
+  let d = `<svg viewBox="0 0 ${W} ${DH}" role="img" aria-label="Effective number of lineages by sample date">`;
+  for (let v = 1; v <= top; v++) {
+    d += `<line x1="${L}" x2="${W - R}" y1="${dy(v)}" y2="${dy(v)}" stroke="var(--line)"/>`;
+    d += `<text x="${L - 6}" y="${dy(v) + 4}" text-anchor="end" font-size="11" font-family="IBM Plex Mono, monospace" fill="var(--ink-2)">${v}</text>`;
+  }
+  d += `<path d="${dv.map((v, i) => (i ? "L" : "M") + px(i).toFixed(1) + " " + dy(v).toFixed(1)).join(" ")}" fill="none" stroke="var(--accent)" stroke-width="2" stroke-linejoin="round"/>`;
+  dv.forEach((v, i) => {
+    d += `<circle cx="${px(i).toFixed(1)}" cy="${dy(v).toFixed(1)}" r="4" fill="var(--accent)" stroke="var(--surface)" stroke-width="2"><title>${shortDate(series[i].date)}: ${v.toFixed(1)} effective lineages (H = ${Math.log(v).toFixed(2)})</title></circle>`;
+    d += `<text x="${px(i).toFixed(1)}" y="${DH - 8}" text-anchor="middle" font-size="11" font-family="IBM Plex Mono, monospace" fill="var(--ink-2)">${shortDate(series[i].date)}</text>`;
+  });
+  const peak = dv.indexOf(Math.max(...dv));
+  d += `<text x="${px(peak).toFixed(1)}" y="${(dy(dv[peak]) - 9).toFixed(1)}" text-anchor="middle" font-size="11" font-weight="600" fill="var(--ink)">peak ${dv[peak].toFixed(1)}</text>`;
+  $("diversityChart").innerHTML = d + `</svg>`;
+}
+
+// "At a glance": plain sentences built by rules from the numbers on the dashboard.
+// Every sentence comes from a value already shown above, so each one can be checked.
+function renderGlance({ week, prev, clusters, wwSignals }) {
+  const parts = [];
+  const plural = (n, word) => `${n} ${word}${n === 1 ? "" : "s"}`;
+  const plain = { ili: "flu-like illness", resp: "respiratory illness", gi: "stomach illness",
+    skin: "rash or skin illness", neuro: "meningitis-like illness", other: "nonspecific illness" };
+  const cap = t => t.charAt(0).toUpperCase() + t.slice(1);
+
+  // 1. Overall volume
+  const pct = prev.length ? Math.round(100 * (week.length - prev.length) / prev.length) : null;
+  parts.push(week.length
+    ? `<b>${plural(week.length, "symptom report")}</b> this week` +
+      (pct === null ? "." : pct === 0 ? ", the same as last week." : `, ${pct > 0 ? "up" : "down"} ${Math.abs(pct)}% from last week.`)
+    : "No symptom reports this week.");
+
+  // 2. Top cluster, with wastewater agreement and lead time
+  const top = clusters[0];
+  if (top) {
+    let t = `The biggest concern is <b>${plain[top.syndrome]} at ${esc(top.place)}</b> (${plural(top.count, "report")})`;
+    const w = (top.ww || []).slice().sort(wwSort)[0];
+    if (w) {
+      t += `, and ${esc(WW_TARGET[w.target].name)} in its wastewater is ${w.ratioText}, so both signals agree`;
+      const lead = w.riseDate ? daysBetween(w.riseDate, top.first) : 0;
+      if (lead > 0) t += `. Wastewater rose ${plural(lead, "day")} before the first symptoms`;
+    }
+    parts.push(t + ".");
+  }
+
+  // 3. Other residence clusters that wastewater confirms (up to 2)
+  clusters.slice(1).filter(c => c.kind === "residence" && c.ww && c.ww.length).slice(0, 2).forEach(c => {
+    const w = c.ww.slice().sort(wwSort)[0];
+    parts.push(`${cap(plain[c.syndrome])} at ${esc(c.place)} matches rising ${esc(WW_TARGET[w.target].name)} at ${esc(WW_SITE[w.site].name)}.`);
+  });
+
+  // 4. Early warnings: wastewater up, no matching reports
+  wwSignals.filter(s => s.level && !clusters.some(c => wwMatches(s, c))).sort(wwSort).slice(0, 2).forEach(s =>
+    parts.push(`<b>Possible early warning:</b> ${esc(WW_TARGET[s.target].name)} is ${s.ratioText} at ${esc(WW_SITE[s.site].name)} with no matching reports yet.`));
+
+  // 5. Biggest SARS-CoV-2 lineage shift across all sites
+  let shift = null;
+  [...new Set(state.lineages.map(d => d.site))].forEach(site => {
+    const c = biggestLineageChange(lineageSeries(site));
+    if (c && (!shift || c.change > shift.change)) shift = { ...c, site };
+  });
+  if (shift) parts.push(`SARS-CoV-2 lineage <b>${esc(shift.lineage)}</b> grew from ${Math.round(100 * shift.from)}% to ${Math.round(100 * shift.to)}% at ${esc(WW_SITE[shift.site].name)} over the last 4 weeks.`);
+
+  // 6. Closing line
+  parts.push(!clusters.length && !wwSignals.some(s => s.level)
+    ? "All quiet: no symptom clusters and no wastewater rises."
+    : "Everything else is near normal.");
+  $("glance").innerHTML = parts.join(" ");
 }
 
 function renderRules() {
@@ -1374,6 +1730,7 @@ function showScreen(name) {
 }
 document.querySelectorAll("[data-tab]").forEach(b => b.addEventListener("click", () => showScreen(b.dataset.tab)));
 $("showDemo").addEventListener("change", e => { state.showDemo = e.target.checked; renderDashboard(); });
+$("lineageSite").addEventListener("change", e => { state.lineageSite = e.target.value; renderGenomics(); });
 
 const wk = mmwrWeek(todayStr());
 $("mmwr").textContent = `MMWR week ${wk.week}, ${wk.year}`;

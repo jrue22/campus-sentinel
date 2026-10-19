@@ -15,7 +15,7 @@ This project and associated documentation was generated with Anthropic’s Claud
 | `firestore.rules` | Database security rules (paste into the Firebase console) |
 | `seed.html` | Loads 38 example reports for demos |
 | `wastewater-config.js` | Wastewater targets (viruses, bacteria) and sampling sites with map coordinates. Edit to match your facility |
-| `wastewater-import.html` | Signed-in uploaders add a CSV of wastewater results, or example data |
+| `wastewater-import.html` | Signed-in uploaders add wastewater results and SARS-CoV-2 lineage results (CSV), or example data |
 | `manifest.webmanifest`, `icon-*.png` | Make "Add to Home Screen" work like an app |
 
 ## Setup (about 15 minutes)
@@ -53,6 +53,15 @@ The dashboard has a **Wastewater signals** panel with a map. For each sampling s
 
 The map (Leaflet + OpenStreetMap) shows one circle per sampling site, colored by its strongest signal. Tap a circle for details. Site locations are the `lat` and `lng` values in `wastewater-config.js`.
 
+### More wastewater features
+
+- **Sparklines:** each row of the wastewater table shows the last 5 weeks of samples (log scale), with the baseline as a dashed line.
+- **Lead time ("Did wastewater see it first?"):** for each symptom cluster with a matching wastewater signal, the days from the wastewater rise (first sample at 2x baseline or more) to the first symptom onset, with a mini timeline. Rising signals with no matching cluster are listed as possible early warnings.
+- **SARS-CoV-2 genomics** (collapsible panel): lineage shares per sample from sequencing (Freyja), as stacked bars per site, plus genetic diversity: the effective number of lineages, e^H, where H is the Shannon index.
+- **At a glance:** a short plain-language summary at the bottom of the dashboard, built by rules from the numbers above it.
+
+Lineage names shown in color are listed in `WW_LINEAGES` in `wastewater-config.js` (up to 5, in color order); others count as "Other". To load lineage data, use the second section of `wastewater-import.html`: a CSV with `date,site,lineage,abundance` (one row per lineage, abundance as a fraction), or **Add example lineage data**. The example lineage names are real 2025 Pango lineages used for illustration only; they are not current results.
+
 ### One-time setup: who can upload lab data
 
 Anyone can submit a symptom report, but only listed accounts can add wastewater samples. One fake sample would show a "high" alert on every dashboard.
@@ -60,13 +69,13 @@ Anyone can submit a symptom report, but only listed accounts can add wastewater 
 1. Firebase console → **Build → Authentication → Get started**.
 2. **Sign-in method** tab → **Google** → **Enable** → choose a support email → **Save**.
 3. **Settings** tab → **Authorized domains** → **Add domain** → your GitHub Pages domain, e.g. `yourname.github.io` (no `https://`, no folder).
-4. In **Firestore Database → Rules**, paste `firestore.rules`, replace `YOUR-EMAIL@asu.edu` in `isLabUploader()` with the uploader's Google or ASU email (add teammates comma-separated, each in quotes), and click **Publish**. You can leave the placeholder in the GitHub copy so your email isn't public; the console copy is the one that counts.
+4. In **Firestore Database → Rules**, paste `firestore.rules` (it now covers `reports`, `wastewater` and `lineages`), replace `YOUR-EMAIL@asu.edu` in `isLabUploader()` with the uploader's Google or ASU email (add teammates comma-separated, each in quotes), and click **Publish**. You can leave the placeholder in the GitHub copy so your email isn't public; the console copy is the one that counts.
 
 ### Loading data
 
 1. Edit `wastewater-config.js` so the sites, coordinates and targets match your facility. The included sites and coordinates are placeholders.
 2. Open `.../wastewater-import.html` and **Sign in with Google**.
-3. Click **Add example wastewater data** to demo (run `seed.html` too: the examples line up with its Hassayampa and Taylor Place clusters, plus one wastewater-only Salmonella signal at West Valley). For real data, paste or upload a CSV with `date,site,target,copies_per_l,pmmov_copies_per_l`.
+3. Click **Add example wastewater data** and **Add example lineage data** to demo (run `seed.html` too: the examples line up with its Hassayampa and Taylor Place clusters, plus one wastewater-only Salmonella signal at West Valley). For real data, paste or upload a CSV with `date,site,target,copies_per_l,pmmov_copies_per_l`.
 4. Samples already stored (same site, target and date) are skipped, so uploading twice is safe.
 5. Each site and target needs at least 2 samples this week and 2 in the prior four weeks before it shows up.
 

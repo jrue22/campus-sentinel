@@ -22,3 +22,8 @@ window.WW_SITES = [
   { id: "poly-campus",       name: "Polytechnic campus sewer",      campus: "poly",     residences: [], lat: 33.3070, lng: -111.6790 },
   { id: "west-campus",       name: "West Valley campus sewer",      campus: "west",     residences: [], lat: 33.6077, lng: -112.1606 },
 ];
+
+// SARS-CoV-2 lineages shown by name in the genomics panel, in color order (up to 5).
+// Any other lineage in the data is counted as "Other". The example data uses these names.
+// Replace with the lineages your lab's Freyja results report.
+window.WW_LINEAGES = ["LP.8.1", "XFG", "NB.1.8.1", "XEC"];

@@ -9,6 +9,7 @@
   body { margin: 0; padding: 32px 16px; font: 15px/1.55 system-ui, -apple-system, "Segoe UI", sans-serif; background: #F6F4F5; color: #1F1A1C; }
   main { max-width: 70ch; margin: 0 auto; display: grid; gap: 14px; }
   h1 { margin: 0; font-size: 1.5rem; }
+  h2 { margin: 12px 0 0; font-size: 1.15rem; }
   textarea { width: 100%; min-height: 12em; font: 0.85rem/1.4 ui-monospace, Menlo, monospace; padding: 10px; border: 1px solid #DDD5D9; border-radius: 8px; box-sizing: border-box; }
   button { font: inherit; font-weight: 600; background: #8C1D40; color: #fff; border: 0; border-radius: 10px; padding: 12px 18px; cursor: pointer; }
   button.ghost { background: #EFEAEC; color: #1F1A1C; }
@@ -31,6 +32,7 @@
     <button id="signOut" class="ghost" hidden>Sign out</button>
   </div>
 
+  <h2>Wastewater test results</h2>
   <p>Paste or upload a CSV from the treatment facility's lab. Columns, in this order, with a header row:</p>
   <p><code>date,site,target,copies_per_l,pmmov_copies_per_l</code></p>
   <p>Dates are <code>YYYY-MM-DD</code> (the sample date, not the lab report date). <code>site</code> and <code>target</code> must be ids from <code>wastewater-config.js</code>. Use <code>0</code> for a non-detect. <code>pmmov_copies_per_l</code> is optional but recommended; include it for every row or for none. Samples already in the database are skipped, so uploading the same file twice is safe. Do not include any personal or facility-confidential data: this database is publicly readable.</p>
@@ -40,6 +42,18 @@
     <button id="go" disabled>Upload samples</button>
     <button id="demo" class="ghost" disabled>Add example wastewater data</button>
   </div>
+
+  <h2>SARS-CoV-2 lineages (sequencing)</h2>
+  <p>Lineage shares for each sample, as estimated by <b>Freyja</b> from sequencing reads. One row per lineage, with a header row:</p>
+  <p><code>date,site,lineage,abundance</code></p>
+  <p><code>abundance</code> is a fraction from 0 to 1, as Freyja reports it; a sample's rows should add up to about 1. Freyja's <code>aggregate</code> output lists a sample's lineages and abundances on one line, separated by spaces: put each pair on its own row here, with that sample's date and site.</p>
+  <textarea id="lcsv" spellcheck="false" placeholder="date,site,lineage,abundance&#10;2026-10-12,tempe-campus,XFG,0.41&#10;2026-10-12,tempe-campus,LP.8.1,0.37&#10;2026-10-12,tempe-campus,NB.1.8.1,0.18"></textarea>
+  <div class="row">
+    <input type="file" id="lfile" accept=".csv,text/csv">
+    <button id="lgo" disabled>Upload lineages</button>
+    <button id="ldemo" class="ghost" disabled>Add example lineage data</button>
+  </div>
+
   <div id="log">Ready.</div>
   <p><a href="./#dashboard">Open the dashboard</a></p>
 </main>
@@ -47,8 +61,8 @@
 <script src="https://www.gstatic.com/firebasejs/10.12.2/firebase-app-compat.js"></script>
 <script src="https://www.gstatic.com/firebasejs/10.12.2/firebase-auth-compat.js"></script>
 <script src="https://www.gstatic.com/firebasejs/10.12.2/firebase-firestore-compat.js"></script>
-<script src="firebase-config.js"></script>
-<script src="wastewater-config.js"></script>
+<script src="firebase-config.js?v=4"></script>
+<script src="wastewater-config.js?v=4"></script>
 <script>
 const $ = id => document.getElementById(id);
 const log = m => { $("log").textContent = m; };
@@ -93,10 +107,12 @@ function buildDemo() {
   const base = { sars2: 8000, fluA: 2500, rsv: 1800, noro: 20000, salm: 600, campy: 900, shig: 150, stec: 300 };
   const surge = { "tempe-hassayampa|noro": 6, "tempe-campus|noro": 3, "dtphx-campus|fluA": 4, "west-campus|salm": 3.5 };
   const out = [];
-  for (let ago = 0; ago <= 36; ago += 4) {
+  // Samples every 3 days. Surges start about 9 days ago at half strength and build to their
+  // peak today, so wastewater rises several days before the matching symptom reports in seed.html.
+  for (let ago = 0; ago <= 36; ago += 3) {
     for (const s of WW_SITES) for (const t of WW_TARGETS) {
       const m = surge[s.id + "|" + t.id] || 1;
-      const f = ago <= 6 ? 1 + (m - 1) * (1 - ago / 8) : 1;
+      const f = ago <= 9 ? 1 + (m - 1) * (1 - ago / 18) : 1;
       const nonDetect = t.category === "bacterial" && f === 1 && rand() < 0.15;
       out.push({ site: s.id, target: t.id, date: isoDate(ago),
         copiesPerL: nonDetect ? 0 : Math.round(base[t.id] * f * (0.75 + 0.5 * rand())),
@@ -107,9 +123,64 @@ function buildDemo() {
   return out;
 }
 
+// ---------- SARS-CoV-2 lineages ----------
+const lineageId = d => (d.demo ? "demo_" : "") + d.date + "_" + d.site;
+
+// Long CSV (one row per lineage) -> one document per site + date.
+function parseLineageCsv(text) {
+  const groups = new Map(), errors = [];
+  text.split(/\r?\n/).forEach((raw, i) => {
+    const line = raw.trim(), lineNo = i + 1;
+    if (!line || (lineNo === 1 && /^date\s*,/i.test(line))) return;
+    const [date, site, lineage, abundance] = line.split(",").map(x => x.trim().replace(/^"|"$/g, ""));
+    const f = Number(abundance);
+    const bad = !isRealDate(date) ? "date must be a real date written YYYY-MM-DD"
+      : date > isoDate(0) ? "date is in the future"
+      : !SITES.has(site) ? "unknown site '" + site + "'"
+      : !/^[A-Za-z0-9._-]{1,40}$/.test(lineage || "") ? "lineage name must be letters, numbers, dots or dashes"
+      : !(abundance !== "" && Number.isFinite(f) && f >= 0 && f <= 1) ? "abundance must be a fraction from 0 to 1" : null;
+    if (bad) { errors.push("Line " + lineNo + ": " + bad); return; }
+    const key = date + "|" + site;
+    if (!groups.has(key)) groups.set(key, { site, date, lineages: [], lines: [] });
+    const g = groups.get(key);
+    g.lineages.push({ lineage, share: f }); g.lines.push(lineNo);
+  });
+  const docs = [];
+  groups.forEach(g => {
+    const total = g.lineages.reduce((a, x) => a + x.share, 0);
+    if (total < 0.5 || total > 1.05) { errors.push("Lines " + g.lines.join(", ") + ": abundances for " + g.site + " on " + g.date + " add up to " + total.toFixed(2) + " (expected about 1)"); return; }
+    if (g.lineages.length > 40) { errors.push("Lines " + g.lines[0] + "\u2013: more than 40 lineages in one sample"); return; }
+    docs.push({ site: g.site, date: g.date, lineages: g.lineages, submittedAt: new Date().toISOString() });
+  });
+  return { docs, errors };
+}
+
+// Example lineage data: weekly samples for 8 weeks. XFG takes over Tempe first, Downtown a week
+// later, West Valley after that; Polytechnic keeps a different mix (a separate introduction).
+function buildLineageDemo() {
+  let seed = 23; const rand = () => (seed = (seed * 16807) % 2147483647) / 2147483647;
+  const start = { "tempe-campus": 4, "dtphx-campus": 5, "west-campus": 6, "poly-campus": 99 };   // week XFG hits 50% of its peak
+  const out = [];
+  for (const site of Object.keys(start)) {
+    for (let w = 0; w < 8; w++) {
+      const ago = (7 - w) * 7;
+      const xfg = 0.75 / (1 + Math.exp(-(w - start[site]) * 1.3));                      // logistic takeover
+      const rest = 1 - xfg - 0.04;
+      const base = site === "poly-campus" ? { "NB.1.8.1": 0.55, "LP.8.1": 0.30, "XEC": 0.15 } : { "LP.8.1": 0.55, "NB.1.8.1": 0.27, "XEC": 0.18 };
+      const lineages = [{ lineage: "XFG", share: xfg }];
+      for (const k in base) lineages.push({ lineage: k, share: rest * base[k] * (0.85 + 0.3 * rand()) });
+      lineages.push({ lineage: "BA.2.86", share: 0.04 });                                   // a minor lineage, shown as Other
+      const total = lineages.reduce((a, x) => a + x.share, 0);
+      out.push({ site, date: isoDate(ago), demo: true, submittedAt: new Date().toISOString(),
+        lineages: lineages.filter(x => x.share >= 0.005).map(x => ({ lineage: x.lineage, share: Math.round(1000 * x.share / total * 0.97) / 1000 })) });
+    }
+  }
+  return out;
+}
+
 // ---------- Firebase setup and sign-in ----------
 let db = null, auth = null;
-function setButtons(enabled) { $("go").disabled = $("demo").disabled = !enabled; }
+function setButtons(enabled) { ["go", "demo", "lgo", "ldemo"].forEach(id => { $(id).disabled = !enabled; }); }
 
 (function start() {
   const c = window.FIREBASE_CONFIG;
@@ -144,21 +215,21 @@ $("signIn").addEventListener("click", async () => {
 $("signOut").addEventListener("click", () => auth.signOut());
 
 // ---------- Upload ----------
-async function upload(docs) {
+async function upload(docs, collection = "wastewater", idOf = sampleId) {
   if (!db || !auth.currentUser) return log("Sign in first.");
   setButtons(false);
   try {
     // Skip samples that are already stored (same site + target + date).
     const minDate = docs.map(d => d.date).sort()[0];
-    const existing = new Set((await db.collection("wastewater").where("date", ">=", minDate).get()).docs.map(d => d.id));
-    const fresh = docs.filter(d => !existing.has(sampleId(d)));
-    const unique = [...new Map(fresh.map(d => [sampleId(d), d])).values()];   // duplicates inside the file too
+    const existing = new Set((await db.collection(collection).where("date", ">=", minDate).get()).docs.map(d => d.id));
+    const fresh = docs.filter(d => !existing.has(idOf(d)));
+    const unique = [...new Map(fresh.map(d => [idOf(d), d])).values()];   // duplicates inside the file too
     const skipped = docs.length - unique.length;
     if (!unique.length) { log("Nothing new to upload. All " + docs.length + " samples are already in the database."); return; }
 
     for (let i = 0; i < unique.length; i += 400) {          // a batch holds at most 500 writes
       const batch = db.batch();
-      unique.slice(i, i + 400).forEach(d => batch.set(db.collection("wastewater").doc(sampleId(d)), d));
+      unique.slice(i, i + 400).forEach(d => batch.set(db.collection(collection).doc(idOf(d)), d));
       await batch.commit();
       log("Uploaded " + Math.min(i + 400, unique.length) + " of " + unique.length + "…");
     }
@@ -180,6 +251,15 @@ $("go").addEventListener("click", () => {
   upload(docs);
 });
 $("demo").addEventListener("click", () => upload(buildDemo()));
+
+$("lfile").addEventListener("change", e => { const f = e.target.files[0]; if (f) f.text().then(t => { $("lcsv").value = t; }); });
+$("lgo").addEventListener("click", () => {
+  const { docs, errors } = parseLineageCsv($("lcsv").value);
+  if (errors.length) return log("Nothing uploaded. Fix these first:\n" + errors.slice(0, 10).join("\n") + (errors.length > 10 ? "\n…and " + (errors.length - 10) + " more" : ""));
+  if (!docs.length) return log("No rows found.");
+  upload(docs, "lineages", lineageId);
+});
+$("ldemo").addEventListener("click", () => upload(buildLineageDemo(), "lineages", lineageId));
 </script>
 </body>
 </html>
