@@ -1,0 +1,117 @@
+<!doctype html>
+<html lang="en">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1">
+<title>Sentinel Wastewater Import</title>
+<meta name="robots" content="noindex">
+<style>
+  body { margin: 0; padding: 32px 16px; font: 15px/1.55 system-ui, -apple-system, "Segoe UI", sans-serif; background: #F6F4F5; color: #1F1A1C; }
+  main { max-width: 70ch; margin: 0 auto; display: grid; gap: 14px; }
+  h1 { margin: 0; font-size: 1.5rem; }
+  textarea { width: 100%; min-height: 12em; font: 0.85rem/1.4 ui-monospace, Menlo, monospace; padding: 10px; border: 1px solid #DDD5D9; border-radius: 8px; box-sizing: border-box; }
+  button { font: inherit; font-weight: 600; background: #8C1D40; color: #fff; border: 0; border-radius: 10px; padding: 12px 18px; cursor: pointer; }
+  button.ghost { background: #EFEAEC; color: #1F1A1C; }
+  button[disabled] { opacity: .5; cursor: not-allowed; }
+  .row { display: flex; gap: 10px; flex-wrap: wrap; align-items: center; }
+  #log { font: 0.85rem/1.5 ui-monospace, Menlo, monospace; white-space: pre-wrap; background: #fff; border: 1px solid #DDD5D9; border-radius: 8px; padding: 12px; min-height: 3em; }
+  a { color: #8C1D40; } code { background: #EFEAEC; padding: 1px 4px; border-radius: 4px; }
+</style>
+</head>
+<body>
+<main>
+  <h1>Load wastewater data</h1>
+  <p>Paste or upload a CSV from the treatment facility's lab. Columns, in this order, with a header row:</p>
+  <p><code>date,site,target,copies_per_l,pmmov_copies_per_l</code></p>
+  <p>Dates are <code>YYYY-MM-DD</code> (the sample date, not the lab report date). <code>site</code> and <code>target</code> must be ids from <code>wastewater-config.js</code>. Use <code>0</code> for a non-detect. <code>pmmov_copies_per_l</code> is optional but recommended. Do not include any personal or facility-confidential data: this database is publicly readable.</p>
+  <textarea id="csv" spellcheck="false" placeholder="date,site,target,copies_per_l,pmmov_copies_per_l&#10;2026-10-12,tempe-campus,noro,24000,1100000&#10;2026-10-12,tempe-campus,sars2,0,1100000"></textarea>
+  <div class="row">
+    <input type="file" id="file" accept=".csv,text/csv">
+    <button id="go">Upload samples</button>
+    <button id="demo" class="ghost">Add example wastewater data</button>
+  </div>
+  <div id="log">Ready.</div>
+  <p><a href="./#dashboard">Open the dashboard</a></p>
+</main>
+
+<script src="https://www.gstatic.com/firebasejs/10.12.2/firebase-app-compat.js"></script>
+<script src="https://www.gstatic.com/firebasejs/10.12.2/firebase-firestore-compat.js"></script>
+<script src="firebase-config.js"></script>
+<script src="wastewater-config.js"></script>
+<script>
+const $ = id => document.getElementById(id);
+const log = m => { $("log").textContent = m; };
+const SITES = new Set(WW_SITES.map(s => s.id)), TARGETS = new Set(WW_TARGETS.map(t => t.id));
+const isoDate = ago => { const d = new Date(); d.setDate(d.getDate() - ago); return d.getFullYear() + "-" + String(d.getMonth() + 1).padStart(2, "0") + "-" + String(d.getDate()).padStart(2, "0"); };
+
+// CSV text -> { docs, errors }. Every row is checked before anything is uploaded.
+function parseCsv(text) {
+  const docs = [], errors = [];
+  const lines = text.split(/\r?\n/).map(l => l.trim()).filter(Boolean);
+  if (lines[0] && /^date\s*,/i.test(lines[0])) lines.shift();
+  lines.forEach((line, i) => {
+    const [date, site, target, copies, pmmov] = line.split(",").map(x => x.trim());
+    const c = Number(copies), p = pmmov ? Number(pmmov) : null;
+    const bad = !/^\d{4}-\d{2}-\d{2}$/.test(date || "") ? "date must be YYYY-MM-DD"
+      : !SITES.has(site) ? "unknown site '" + site + "'"
+      : !TARGETS.has(target) ? "unknown target '" + target + "'"
+      : !(copies !== "" && Number.isFinite(c) && c >= 0) ? "copies_per_l must be a number, 0 or more"
+      : (p !== null && !(Number.isFinite(p) && p > 0)) ? "pmmov must be a positive number" : null;
+    if (bad) { errors.push("Row " + (i + 1) + ": " + bad); return; }
+    docs.push({ site, target, date, copiesPerL: c, ...(p ? { pmmovPerL: p } : {}), submittedAt: new Date().toISOString() });
+  });
+  return { docs, errors };
+}
+
+// Example data: quiet baselines, with a few planted surges that line up with the symptom examples in seed.html.
+function buildDemo() {
+  let seed = 11; const rand = () => (seed = (seed * 16807) % 2147483647) / 2147483647;
+  const base = { sars2: 8000, fluA: 2500, rsv: 1800, noro: 20000, salm: 600, campy: 900, shig: 150, stec: 300 };
+  const surge = { "tempe-hassayampa|noro": 6, "tempe-campus|noro": 3, "dtphx-campus|fluA": 4, "west-campus|salm": 3.5 };
+  const out = [];
+  for (let ago = 0; ago <= 36; ago += 4) {
+    for (const s of WW_SITES) for (const t of WW_TARGETS) {
+      const m = surge[s.id + "|" + t.id] || 1;
+      const f = ago <= 6 ? 1 + (m - 1) * (1 - ago / 8) : 1;
+      const nonDetect = t.category === "bacterial" && f === 1 && rand() < 0.15;
+      out.push({ site: s.id, target: t.id, date: isoDate(ago),
+        copiesPerL: nonDetect ? 0 : Math.round(base[t.id] * f * (0.75 + 0.5 * rand())),
+        pmmovPerL: Math.round(1e6 * (0.7 + 0.6 * rand())),
+        submittedAt: new Date().toISOString(), demo: true });
+    }
+  }
+  return out;
+}
+
+async function upload(docs) {
+  const c = window.FIREBASE_CONFIG;
+  if (!window.firebase) return log("The Firebase library didn't load. Check your connection or content blocker and reload.");
+  if (!c || String(c.projectId).startsWith("PASTE")) return log("firebase-config.js still has placeholder values.");
+  $("go").disabled = $("demo").disabled = true;
+  try {
+    if (!firebase.apps.length) firebase.initializeApp(c);
+    const db = firebase.firestore();
+    for (let i = 0; i < docs.length; i += 400) {            // a batch holds at most 500 writes
+      const batch = db.batch();
+      docs.slice(i, i + 400).forEach(d => batch.set(db.collection("wastewater").doc(), d));
+      await batch.commit();
+      log("Uploaded " + Math.min(i + 400, docs.length) + " of " + docs.length + "…");
+    }
+    log("Done. Uploaded " + docs.length + " samples.");
+  } catch (err) {
+    log("Stopped: " + (err.code === "permission-denied" ? "the database rejected a sample. Publish the updated firestore.rules." : err.message));
+  }
+  $("go").disabled = $("demo").disabled = false;
+}
+
+$("file").addEventListener("change", e => { const f = e.target.files[0]; if (f) f.text().then(t => { $("csv").value = t; }); });
+$("go").addEventListener("click", () => {
+  const { docs, errors } = parseCsv($("csv").value);
+  if (errors.length) return log("Nothing uploaded. Fix these first:\n" + errors.slice(0, 10).join("\n") + (errors.length > 10 ? "\n…and " + (errors.length - 10) + " more" : ""));
+  if (!docs.length) return log("No rows found.");
+  upload(docs);
+});
+$("demo").addEventListener("click", () => upload(buildDemo()));
+</script>
+</body>
+</html>

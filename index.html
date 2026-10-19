@@ -346,6 +346,15 @@
 
       <div class="panel">
         <div class="panel-head">
+          <h3>Wastewater signals</h3>
+          <span class="eyebrow">Last 7 days vs prior 4 weeks</span>
+        </div>
+        <p class="muted" id="wwStatus"></p>
+        <div class="table-box" id="wwTable"></div>
+      </div>
+
+      <div class="panel">
+        <div class="panel-head">
           <h3>Epidemic curve</h3>
           <span class="eyebrow">Reports by symptom-onset date · 14 days</span>
         </div>
@@ -381,6 +390,7 @@
           <li><b>Score pathogen type.</b> Each rule below adds points to one or more categories. The category with the most points wins. Confidence is that category's share of all points: 60% or more is high, 40–59% is moderate, below 40% is low.</li>
           <li><b>Detect clusters.</b> Reports from the last 7 days are counted by residence and syndrome. Three or more in one residence is a <b>Watch</b>. Five or more, or any meningitis-like report, is an <b>Alert</b>. The same syndrome at five or more students across one campus raises a campus-wide signal. A cluster is <b>Rising</b> when this week's count is at least double the week before.</li>
           <li><b>Recommend.</b> Each cluster shows the pathogens to look for, based on its syndrome and its most common pathogen category.</li>
+          <li><b>Cross-check with wastewater.</b> Sewage samples measure virus and bacteria genes shed by everyone on a sewer line, including people who never report. For each site and target, the last 7 days are compared with the 28 days before. A mean of 2× baseline is <b>elevated</b> and 4× is <b>high</b>. Values are divided by PMMoV when the lab provides it. A wastewater signal that matches a symptom cluster (same syndrome, same place) is marked <b>+ wastewater</b>. One with no matching cluster is a possible early warning.</li>
         </ol>
       </div>
       <div class="panel">
@@ -389,7 +399,7 @@
       </div>
       <div class="prose">
         <h3>Limits</h3>
-        <p class="muted">The patterns come from the sources in the table, but the point values are the author's judgment, not weights measured from lab-confirmed cases. Symptoms alone cannot confirm a pathogen. Self-reports can be duplicated or missing, and students who feel mildly sick report less often. Rules here are simplified teaching versions of clinical patterns. A real deployment would confirm clusters with lab testing and campus health staff.</p>
+        <p class="muted">The patterns come from the sources in the table, but the point values are the author's judgment, not weights measured from lab-confirmed cases. Symptoms alone cannot confirm a pathogen. Self-reports can be duplicated or missing, and students who feel mildly sick report less often. Rules here are simplified teaching versions of clinical patterns. A real deployment would confirm clusters with lab testing and campus health staff. Wastewater shows that a pathogen is present in a sewershed, not who is sick or how sick. Sewer lines can serve people outside the dorms, bacterial assays are far less standardized than viral ones, and the 2× and 4× thresholds are simple teaching values rather than percentile baselines like the CDC uses.</p>
       </div>
     </section>
 
@@ -420,6 +430,8 @@
 <script src="https://cdnjs.cloudflare.com/ajax/libs/qrcodejs/1.0.0/qrcode.min.js"></script>
 <!-- Your project's settings (edit this file, see README) -->
 <script src="firebase-config.js"></script>
+<!-- Wastewater targets and sampling sites (edit this file) -->
+<script src="wastewater-config.js"></script>
 
 <script>
 /* =====================================================================
@@ -500,6 +512,16 @@ const WINDOW_DAYS = 7;
 const RESIDENCE_WATCH = 3;
 const RESIDENCE_ALERT = 5;
 const CAMPUS_SIGNAL = 5;
+
+// Wastewater thresholds (see Method screen). Targets and sites live in wastewater-config.js.
+const WW_RECENT_DAYS = 7;    // recent window
+const WW_BASE_DAYS = 28;     // baseline window just before it
+const WW_WATCH = 2;          // recent mean at least 2x baseline = elevated
+const WW_ALERT = 4;          // at least 4x baseline = high
+const WW_MIN_RECENT = 2;     // samples needed in the recent window
+const WW_MIN_BASE = 2;       // samples needed in the baseline window
+const WW_TARGET = Object.fromEntries((window.WW_TARGETS || []).map(t => [t.id, t]));
+const WW_SITE = Object.fromEntries((window.WW_SITES || []).map(t => [t.id, t]));
 
 // Quick lookups built from the lists above
 const residenceName = {};
@@ -718,8 +740,8 @@ function detectClusters(reports) {
     const n = g.current.length;
     const anyUrgentNeuro = syndrome === "neuro" && n > 0;
     if (n >= RESIDENCE_WATCH || anyUrgentNeuro) {
-      clusters.push(makeCluster("residence", residenceName[residence] || residence, syndrome, g,
-        (n >= RESIDENCE_ALERT || anyUrgentNeuro) ? "alert" : "watch"));
+      clusters.push(Object.assign(makeCluster("residence", residenceName[residence] || residence, syndrome, g,
+        (n >= RESIDENCE_ALERT || anyUrgentNeuro) ? "alert" : "watch"), { residenceId: residence }));
     }
   }
 
@@ -738,7 +760,7 @@ function detectClusters(reports) {
     const [campus, syndrome] = key.split("|");
     if (campus === "online" || syndrome === "other") continue;
     if (g.current.length >= CAMPUS_SIGNAL) {
-      clusters.push(makeCluster("campus", (campusName[campus] || campus) + " campus", syndrome, g, "watch"));
+      clusters.push(Object.assign(makeCluster("campus", (campusName[campus] || campus) + " campus", syndrome, g, "watch"), { campusId: campus }));
     }
   }
 
@@ -766,6 +788,60 @@ function makeCluster(kind, place, syndrome, g, level) {
 
 
 /* =====================================================================
+   3b. WASTEWATER SIGNALS
+   Each sample is one measurement: site + target + date + copies per liter
+   (and, if the lab ran it, PMMoV copies per liter for normalization).
+   For every site + target we compare the last 7 days to the 28 days
+   before, and flag a jump of 2x (elevated) or 4x (high).
+   ===================================================================== */
+
+// PMMoV is a virus from human stool that is always in sewage, so dividing by it
+// corrects for rain, dilution and how many people used the sewer that day.
+function wwValue(s) {
+  const c = Number(s.copiesPerL), p = Number(s.pmmovPerL);
+  if (!Number.isFinite(c) || c < 0) return null;
+  return p > 0 ? c / p : c;
+}
+const mean = a => a.reduce((x, y) => x + y, 0) / a.length;
+
+function wastewaterSignals(samples) {
+  const today = todayStr();
+  const recentStart = addDays(today, -(WW_RECENT_DAYS - 1));
+  const baseStart = addDays(recentStart, -WW_BASE_DAYS);
+  const groups = {};
+  samples.forEach(s => { const k = s.site + "|" + s.target; (groups[k] = groups[k] || []).push(s); });
+  const out = [];
+  for (const k in groups) {
+    const [site, target] = k.split("|");
+    if (!WW_SITE[site] || !WW_TARGET[target]) continue;       // unknown site or target
+    const pts = groups[k].map(s => ({ date: s.date, v: wwValue(s) })).filter(p => p.v !== null);
+    const recent = pts.filter(p => p.date >= recentStart && p.date <= today);
+    const base = pts.filter(p => p.date >= baseStart && p.date < recentStart);
+    if (recent.length < WW_MIN_RECENT || base.length < WW_MIN_BASE) continue;
+    const r = mean(recent.map(p => p.v)), b = mean(base.map(p => p.v));
+    const ratio = b > 0 ? r / b : (r > 0 ? Infinity : 0);
+    const level = ratio >= WW_ALERT ? "alert" : ratio >= WW_WATCH ? "watch" : null;
+    out.push({
+      site, target, level, ratio,
+      ratioText: ratio === Infinity ? "newly detected" : ratio.toFixed(1) + "× baseline",
+      last: recent.map(p => p.date).sort().pop(), n: recent.length,
+    });
+  }
+  return out;
+}
+
+// Does this wastewater site cover the place of a symptom cluster?
+function siteCovers(site, c) {
+  if (c.residenceId) return site.residences.length ? site.residences.includes(c.residenceId) : site.campus === residenceCampus[c.residenceId];
+  return site.campus === c.campusId;
+}
+// Same syndrome + overlapping place = the two signals support each other.
+function wwMatches(sig, c) {
+  return WW_TARGET[sig.target].syndromes.includes(c.syndrome) && siteCovers(WW_SITE[sig.site], c);
+}
+
+
+/* =====================================================================
    4. DATA STORAGE — Firebase Cloud Firestore
    Each report is one document in the "reports" collection.
    onSnapshot() keeps a live connection open: whenever ANY device adds a
@@ -774,7 +850,7 @@ function makeCluster(kind, place, syndrome, g, level) {
    mode and keeps reports in memory for this visit only.
    ===================================================================== */
 
-const state = { reports: [], db: null, showDemo: true, lastUpdate: null };
+const state = { reports: [], wastewater: [], db: null, showDemo: true, lastUpdate: null };
 
 // Find the project settings. Accepts either window.FIREBASE_CONFIG (our file)
 // or "const firebaseConfig = {...}" pasted straight from the Firebase console.
@@ -802,6 +878,7 @@ function connectDatabase() {
   }
   firebase.initializeApp(getConfig());
   state.db = firebase.firestore();
+  subscribeWastewater();
 
   // Subscribe ONCE. The callback runs now and again whenever anyone submits.
   state.db.collection("reports").onSnapshot(
@@ -817,6 +894,16 @@ function connectDatabase() {
         ? "The database refused to share reports. Check that the Firestore rules are published (see README)."
         : "Live updates stopped (" + err.code + "). Reload the page to reconnect.");
     }
+  );
+}
+
+// Wastewater samples: only the last 70 days are read, which keeps the daily read count small.
+function subscribeWastewater() {
+  state.db.collection("wastewater").where("date", ">=", addDays(todayStr(), -70)).onSnapshot(
+    snap => { state.wastewater = snap.docs.map(d => ({ id: d.id, ...d.data() })); renderDashboard(); },
+    err => showBanner(err.code === "permission-denied"
+      ? "Wastewater data couldn't be read. Publish the updated firestore.rules (see README)."
+      : "Wastewater updates stopped (" + err.code + ").")
   );
 }
 
@@ -968,6 +1055,10 @@ function visibleReports() {
     });
 }
 
+function visibleWastewater() {
+  return state.wastewater.filter(s => s && DATE_RE.test(s.date || "") && (state.showDemo || !s.demo));
+}
+
 function renderDashboard() {
   const reports = visibleReports();
   const today = todayStr();
@@ -976,6 +1067,9 @@ function renderDashboard() {
   const week = reports.filter(r => r.onset >= wStart && r.onset <= today);
   const prev = reports.filter(r => r.onset >= pStart && r.onset < wStart);
   const clusters = detectClusters(reports);
+  const wwSignals = wastewaterSignals(visibleWastewater());
+  clusters.forEach(c => { c.ww = wwSignals.filter(sig => sig.level && wwMatches(sig, c)); });
+  const wwUp = wwSignals.filter(sig => sig.level);
   const alerts = clusters.filter(c => c.level === "alert").length;
 
   // Headline
@@ -996,6 +1090,7 @@ function renderDashboard() {
     kpi("Potential clusters", clusters.length, `<span class="muted">${alerts} alert · ${clusters.length - alerts} watch</span>`),
     kpi("Top syndrome", topSyn ? synCounts[topSyn] : 0, `<span class="muted">${topSyn ? syndromeById[topSyn].name : "none"}</span>`),
     kpi("Urgent flags", urgent, `<span class="muted">severe or red-flag symptoms</span>`),
+    kpi("Wastewater signals", wwUp.length, `<span class="muted">${wwUp.filter(x => x.level === "alert").length} high · ${wwSignals.length} tracked</span>`),
   ].join("");
 
   // Alerts
@@ -1003,6 +1098,7 @@ function renderDashboard() {
     ? `<div class="quiet"><b>All quiet.</b> No residence has ${RESIDENCE_WATCH}+ reports of the same syndrome this week.</div>`
     : clusters.map(alertCard).join("");
 
+  renderWastewater(wwSignals, clusters);
   renderEpiCurve(reports, today);
   renderHeatmap(week);
   renderCategoryTable(week);
@@ -1023,6 +1119,7 @@ function alertCard(c) {
       <span class="toolbar" style="gap:6px">
         <span class="pill ${c.level === "alert" ? "alert-p" : "watch-p"}">${c.level}</span>
         ${c.rising ? `<span class="pill alert-p">Rising</span>` : ""}
+        ${c.ww && c.ww.length ? `<span class="pill watch-p">+ wastewater</span>` : ""}
       </span>
     </div>
     <div class="meta">
@@ -1032,6 +1129,7 @@ function alertCard(c) {
       ${c.sharedMeal ? `<span>${c.sharedMeal} ate at a shared meal</span>` : ""}
     </div>
     <p>Likely pathogen type: <b>${cat}</b> <span class="muted">(${c.categoryShare}% of reports)</span></p>
+    ${c.ww && c.ww.length ? `<p><b>Wastewater agrees:</b> ${c.ww.map(x => `${esc(WW_TARGET[x.target].name)} ${x.ratioText} at ${esc(WW_SITE[x.site].name)}`).join("; ")}</p>` : ""}
     <div class="lookfor"><b>Look for:</b> ${c.lookFor}</div>
   </article>`;
 }
@@ -1118,6 +1216,32 @@ function renderRecent(reports) {
         <td><span class="syn"><i class="sw" style="background:${s.color}"></i>${s.name}</span></td>
         <td>${r.c.category === "undetermined" ? "Undetermined" : categoryName[r.c.category]} <span class="muted">· ${r.c.confidence}</span>${r.c.urgent ? ` <span class="pill alert-p">urgent</span>` : ""}</td>
         <td class="n">${r.c.days}</td></tr>`;
+    }).join("") + `</tbody></table>`;
+}
+
+function renderWastewater(signals, clusters) {
+  if (!signals.length) {
+    $("wwStatus").textContent = "";
+    $("wwTable").innerHTML = `<p class="muted">No wastewater signals yet. Each site and target needs at least ${WW_MIN_RECENT} samples this week and ${WW_MIN_BASE} in the prior four weeks. Load data with wastewater-import.html.</p>`;
+    return;
+  }
+  const rank = x => x.level === "alert" ? 2 : x.level === "watch" ? 1 : 0;
+  const up = signals.filter(x => x.level).sort((a, b) => rank(b) - rank(a) || b.ratio - a.ratio);
+  const quiet = signals.length - up.length;
+  const early = up.filter(x => !clusters.some(c => wwMatches(x, c))).length;
+  $("wwStatus").textContent = up.length
+    ? `${up.length} elevated${early ? `, ${early} with no matching symptom cluster yet (possible early warning)` : ""}. ${quiet} other site/target pairs are near baseline.`
+    : `All ${signals.length} tracked site/target pairs are near baseline.`;
+  if (!up.length) { $("wwTable").innerHTML = ""; return; }
+  $("wwTable").innerHTML = `<table><thead><tr><th>Site</th><th>Target</th><th>Level</th><th>vs baseline</th><th>Last sample</th><th>Symptom reports</th></tr></thead><tbody>` +
+    up.map(x => {
+      const t = WW_TARGET[x.target], match = clusters.filter(c => wwMatches(x, c));
+      return `<tr><td>${esc(WW_SITE[x.site].name)}</td>
+        <td>${esc(t.name)} <span class="muted">· ${t.category}</span></td>
+        <td><span class="pill ${x.level === "alert" ? "alert-p" : "watch-p"}">${x.level === "alert" ? "high" : "elevated"}</span></td>
+        <td class="mono">${x.ratioText}</td>
+        <td class="mono">${shortDate(x.last)}</td>
+        <td>${match.length ? "Matches " + match.map(c => esc(c.place)).join(", ") : `<span class="muted">None yet.</span> ${esc(t.hint)}`}</td></tr>`;
     }).join("") + `</tbody></table>`;
 }
 

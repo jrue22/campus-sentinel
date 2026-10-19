@@ -4,6 +4,8 @@ Anonymous symptom reporting and a live cluster dashboard for campus syndromic su
 
 Built with plain HTML, CSS and JavaScript. Reports are stored in Firebase Cloud Firestore and the site is hosted free on GitHub Pages.
 
+This project and associated documentation was generated with Anthropic’s Claude LLM.
+
 ## Files
 
 | File | What it does |
@@ -12,6 +14,8 @@ Built with plain HTML, CSS and JavaScript. Reports are stored in Firebase Cloud 
 | `firebase-config.js` | Your Firebase project settings (you fill this in) |
 | `firestore.rules` | Database security rules (paste into the Firebase console) |
 | `seed.html` | Loads 38 example reports for demos |
+| `wastewater-config.js` | Wastewater targets (viruses, bacteria) and sampling sites. Edit to match your facility |
+| `wastewater-import.html` | Uploads a CSV of wastewater results, or loads example data |
 | `manifest.webmanifest`, `icon-*.png` | Make "Add to Home Screen" work like an app |
 
 ## Setup (about 15 minutes)
@@ -42,6 +46,17 @@ Firebase's menus change now and then, so the labels may differ slightly.
 1. Open `https://YOUR-USERNAME.github.io/campus-sentinel/seed.html` and click **Add 38 example reports**.
 2. Open the main address and go to the **Dashboard** tab. You should see "Live" in the top corner and the example clusters.
 3. On an iPhone: open the site in **Safari** → **Share** → **Add to Home Screen**. It opens full screen with its own icon.
+
+## Wastewater surveillance
+
+The dashboard adds a **Wastewater signals** panel. It compares the last 7 days of each site and target with the 28 days before. A 2x rise is *elevated* and 4x is *high*. When a signal has the same syndrome and place as a symptom cluster, the cluster card shows **+ wastewater**. A signal with no matching cluster is a possible early warning.
+
+1. Edit `wastewater-config.js` so the sites match your facility's real sampling points, and the targets match the lab's assays.
+2. Re-publish `firestore.rules` (it now includes a `wastewater` collection) and upload all files to GitHub.
+3. Open `.../wastewater-import.html`. Click **Add example wastewater data** to demo (run `seed.html` too: the examples line up with its Hassayampa and Taylor Place clusters, plus one wastewater-only Salmonella signal at West Valley). For real data, paste or upload a CSV with `date,site,target,copies_per_l,pmmov_copies_per_l`.
+4. Each site and target needs at least 2 samples this week and 2 in the prior four weeks before it shows up.
+
+Data is public: do not upload anything confidential. As with reports, anyone with the link can add samples; real use needs sign-in on the import page.
 
 ## Running the live demo
 
