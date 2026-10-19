@@ -40,7 +40,7 @@
   <div class="row">
     <input type="file" id="file" accept=".csv,text/csv">
     <button id="go" disabled>Upload samples</button>
-    <button id="demo" class="ghost" disabled>Add example wastewater data</button>
+    <button id="demo" class="ghost" disabled>Add example wastewater data (version 2)</button>
   </div>
 
   <h2>SARS-CoV-2 lineages (sequencing)</h2>
@@ -61,8 +61,8 @@
 <script src="https://www.gstatic.com/firebasejs/10.12.2/firebase-app-compat.js"></script>
 <script src="https://www.gstatic.com/firebasejs/10.12.2/firebase-auth-compat.js"></script>
 <script src="https://www.gstatic.com/firebasejs/10.12.2/firebase-firestore-compat.js"></script>
-<script src="firebase-config.js?v=4"></script>
-<script src="wastewater-config.js?v=4"></script>
+<script src="firebase-config.js?v=5"></script>
+<script src="wastewater-config.js?v=5"></script>
 <script>
 const $ = id => document.getElementById(id);
 const log = m => { $("log").textContent = m; };
@@ -78,7 +78,10 @@ function isRealDate(str) {
 }
 
 // One document id per site + target + date, so the same sample can't be stored twice.
-const sampleId = d => (d.demo ? "demo_" : "") + d.date + "_" + d.site + "_" + d.target;
+// Example data carries a version, so a newer version uploads even if an older one is still stored;
+// the dashboard keeps the newest sample for each site, target and date.
+const WW_DEMO_VERSION = 2;
+const sampleId = d => (d.demo ? "demo-v" + WW_DEMO_VERSION + "_" : "") + d.date + "_" + d.site + "_" + d.target;
 
 // CSV text -> { docs, errors }. Every row is checked before anything is uploaded.
 // Row numbers match the line numbers in the file, header included.
@@ -104,7 +107,7 @@ function parseCsv(text) {
 // Example data: quiet baselines, with a few planted surges that line up with the symptom examples in seed.html.
 function buildDemo() {
   let seed = 11; const rand = () => (seed = (seed * 16807) % 2147483647) / 2147483647;
-  const base = { sars2: 8000, fluA: 2500, rsv: 1800, noro: 20000, salm: 600, campy: 900, shig: 150, stec: 300 };
+  const base = { sars2: 8000, fluA: 2500, fluB: 1500, rsv: 1800, noro: 20000, rota: 900, salm: 600, crypto: 60 };
   const surge = { "tempe-hassayampa|noro": 6, "tempe-campus|noro": 3, "dtphx-campus|fluA": 4, "west-campus|salm": 3.5 };
   const out = [];
   // Samples every 3 days. Surges start about 9 days ago at half strength and build to their
@@ -113,7 +116,7 @@ function buildDemo() {
     for (const s of WW_SITES) for (const t of WW_TARGETS) {
       const m = surge[s.id + "|" + t.id] || 1;
       const f = ago <= 9 ? 1 + (m - 1) * (1 - ago / 18) : 1;
-      const nonDetect = t.category === "bacterial" && f === 1 && rand() < 0.15;
+      const nonDetect = t.category !== "viral" && f === 1 && rand() < 0.15;   // bacteria and parasites are often not detected
       out.push({ site: s.id, target: t.id, date: isoDate(ago),
         copiesPerL: nonDetect ? 0 : Math.round(base[t.id] * f * (0.75 + 0.5 * rand())),
         pmmovPerL: Math.round(1e6 * (0.7 + 0.6 * rand())),

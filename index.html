@@ -507,10 +507,10 @@
 <script src="https://cdnjs.cloudflare.com/ajax/libs/qrcodejs/1.0.0/qrcode.min.js"></script>
 <script src="https://cdnjs.cloudflare.com/ajax/libs/leaflet/1.9.4/leaflet.min.js"></script>
 <!-- Your project's settings (edit this file, see README) -->
-<script src="firebase-config.js?v=4"></script>
+<script src="firebase-config.js?v=5"></script>
 <!-- Wastewater targets and sampling sites (edit this file) -->
 <!-- "?v=3" makes browsers fetch a fresh copy after an update; raise the number when you edit the file -->
-<script src="wastewater-config.js?v=4"></script>
+<script src="wastewater-config.js?v=5"></script>
 
 <script>
 /* =====================================================================
@@ -887,7 +887,14 @@ function wastewaterSignals(samples) {
   for (const k in groups) {
     const [site, target] = k.split("|");
     if (!WW_SITE[site] || !WW_TARGET[target]) continue;       // unknown site or target
-    const rows = groups[k].filter(s => Number.isFinite(Number(s.copiesPerL)) && Number(s.copiesPerL) >= 0);
+    // One sample per date: if a date was uploaded twice (a re-run, or a newer version of
+    // the example data), keep the most recently uploaded one.
+    const newest = new Map();
+    groups[k].forEach(s => {
+      const kept = newest.get(s.date);
+      if (!kept || String(s.submittedAt || "") > String(kept.submittedAt || "")) newest.set(s.date, s);
+    });
+    const rows = [...newest.values()].filter(s => Number.isFinite(Number(s.copiesPerL)) && Number(s.copiesPerL) >= 0);
 
     // PMMoV is a plant virus from food that every person sheds in stool, so its level
     // tracks how much human waste is in the sample. Dividing by it corrects for rain,
