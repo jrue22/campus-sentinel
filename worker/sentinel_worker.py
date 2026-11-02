@@ -346,14 +346,7 @@ def run_test(text, use_openai):
     print(json.dumps(extract(text, use_openai), indent=2))
 
 
-if __name__ == "__main__":
-    # Words that aren't flags or the numbers after --every / --drip
-    args = [a for i, a in enumerate(sys.argv[1:], 1)
-            if not a.startswith("--") and sys.argv[i - 1] not in ("--every", "--drip", "--max-age")]
-    use_openai = "--keywords" not in sys.argv
-    if not args:
-        print(__doc__); sys.exit(0)
-    cmd = args[0]
+def main(cmd, args, use_openai):
     if cmd == "live":
         run_live(use_openai)
     elif cmd == "ingest" and len(args) > 1:
@@ -368,3 +361,18 @@ if __name__ == "__main__":
         print("\n".join(list_models()))
     else:
         print(__doc__)
+
+
+if __name__ == "__main__":
+    # Words that aren't flags or the numbers after --every / --drip
+    args = [a for i, a in enumerate(sys.argv[1:], 1)
+            if not a.startswith("--") and sys.argv[i - 1] not in ("--every", "--drip", "--max-age")]
+    use_openai = "--keywords" not in sys.argv
+    if not args:
+        print(__doc__); sys.exit(0)
+    cmd = args[0]
+    try:
+        main(cmd, args, use_openai)
+    except KeyboardInterrupt:          # Ctrl+C anywhere (even mid-request): stop cleanly, no traceback
+        print("\nStopped. Anything already saved stays saved; run the command again to pick up where it left off.")
+        sys.exit(130)

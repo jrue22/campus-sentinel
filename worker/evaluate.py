@@ -33,6 +33,10 @@ from extract import extract_keywords, extract_openai, make_client
 from news_extract import extract_news_keywords, extract_news_openai
 
 
+# Ctrl+C while waiting for the model: stop, and score the posts finished so far.
+STOPPED = "\n  Stopped (Ctrl+C). The scores below cover the {} finished so far. Press Ctrl+C again to quit now."
+
+
 def prf(tp, fp, fn):
     p = tp / (tp + fp) if tp + fp else 0.0
     r = tp / (tp + fn) if tp + fn else 0.0
@@ -56,6 +60,8 @@ def evaluate(path, use_openai):
         if use_openai:
             try:
                 got = extract_openai(row["text"], client=client)
+            except KeyboardInterrupt:
+                rows = rows[:i - 1]; print(STOPPED.format(len(rows))); break
             except Exception as e:
                 print(f"     ! API error, skipped: {type(e).__name__}: {str(e)[:120]}")
                 failed.append(row["text"])
@@ -116,6 +122,8 @@ def evaluate_news(path, use_openai):
         print(f"  {i}/{len(rows)}  ({time.time() - start:.0f}s)  {row['text'][:50]!r}", flush=True)
         try:
             got = extract_news_openai(row["text"], client=client) if use_openai else extract_news_keywords(row["text"])
+        except KeyboardInterrupt:
+            rows = rows[:i - 1]; print(STOPPED.format(len(rows))); break
         except Exception as e:
             print(f"     ! API error, skipped: {type(e).__name__}: {str(e)[:120]}")
             failed.append(row["text"]); continue
@@ -159,7 +167,11 @@ def evaluate_news(path, use_openai):
 
 if __name__ == "__main__":
     files = [a for a in sys.argv[1:] if not a.startswith("--")]
-    if "--news" in sys.argv:
-        evaluate_news(files[0] if files else "news_eval.csv", "--openai" in sys.argv)
-    else:
-        evaluate(files[0] if files else "eval_set.csv", "--openai" in sys.argv)
+    try:
+        if "--news" in sys.argv:
+            evaluate_news(files[0] if files else "news_eval.csv", "--openai" in sys.argv)
+        else:
+            evaluate(files[0] if files else "eval_set.csv", "--openai" in sys.argv)
+    except KeyboardInterrupt:          # a second Ctrl+C, or one outside the model call
+        print("\nStopped.")
+        sys.exit(130)
