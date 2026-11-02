@@ -1,0 +1,6 @@
+# Never commit secrets
+worker/service-account.json
+*service-account*.json
+*firebase-adminsdk*.json
+.env
+__pycache__/
