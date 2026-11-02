@@ -77,7 +77,7 @@ PLACE_ALIASES = {
     "tempe-vds": ["vista del sol", "vds"],
     "tempe-barrett": ["barrett"],
     "tempe-sonora": ["sonora"],
-    "dtphx-taylor": ["taylor place", "taylor"],
+    "dtphx-taylor": ["gordon commons", "taylor place", "taylor"],   # renamed Gordon Commons in 2023
     "poly-century": ["century hall"],
     "west-casadeoro": ["casa de oro"],
     # Campus-level places: names, nicknames and well-known buildings. The grounding check only
@@ -128,8 +128,8 @@ Rules:
 - place: ONLY a place the text names, using the most specific one (residence halls first, then campus).
   Most posts don't name a place: then answer "unknown". Never default to campus-tempe or any campus.
   Nicknames and buildings: "hassy" = tempe-hassayampa, "manzy" = tempe-manzanita, "vds" = tempe-vds,
-  "the MU"/"Hayden"/"SDFC" = campus-tempe; "Health North"/"Health South"/"Cronkite"/"Taylor" = Downtown Phoenix
-  (Taylor Place is dtphx-taylor; the others are campus-downtown); "polytech"/"poly" = campus-poly;
+  "the MU"/"Hayden"/"SDFC" = campus-tempe; "Health North"/"Health South"/"Cronkite"/"Gordon Commons" = Downtown Phoenix
+  (Gordon Commons, formerly Taylor Place, is dtphx-taylor; the others are campus-downtown); "polytech"/"poly" = campus-poly;
   "asu west" = campus-west; "main campus" = campus-tempe.
 - pathogen: a disease the text names as present ("norovirus cases", "I have the flu", "strep is going around"),
   otherwise "none". Do not infer a disease from symptoms alone. A vaccine or clinic notice is not a case.
@@ -214,10 +214,16 @@ def ground(r, text):
     """
     # If the text doesn't name the model's place, use the place the text does name
     # (from the list of names and nicknames), or "unknown".
+    named = find_place(text)            # the most specific place the text names, from the list
+    def use(place):
+        return {**r, "place": place, "campus": RESIDENCE_CAMPUS.get(place) or CAMPUS_IDS.get(place),
+                "place_corrected": True}
     if r["place"] != "unknown" and not place_named(r["place"], text):
-        fixed = find_place(text)
-        r = {**r, "place": fixed, "campus": RESIDENCE_CAMPUS.get(fixed) or CAMPUS_IDS.get(fixed),
-             "place_corrected": True}
+        return use(named)                                   # model named a place the text doesn't mention
+    if r["place"] == "unknown" and named != "unknown":
+        return use(named)                                   # model missed a place the text does name
+    if r["place"] in CAMPUS_IDS and named in RESIDENCE_CAMPUS and RESIDENCE_CAMPUS[named] == CAMPUS_IDS[r["place"]]:
+        return use(named)                                   # same campus, but the text names a specific hall
     return r
 
 
