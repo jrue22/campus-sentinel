@@ -255,7 +255,11 @@
   .src-cell:hover span { text-decoration: underline; }
   .dot-on { width: 10px; height: 10px; border-radius: 50%; background: var(--accent); flex: none; display: inline-block; }
   /* Live demo tab: two big QR codes for the projector */
-  .news-list { list-style: none; margin: 0; padding: 0; }
+  .range-toggle { display: inline-flex; gap: 4px; padding: 3px; border: 1px solid var(--line); border-radius: 999px; background: var(--surface-2); }
+.range-toggle button { border: 0; background: none; color: var(--ink-2); border-radius: 999px; padding: 5px 12px; min-height: 32px;
+  font: 500 0.82rem var(--f-body); cursor: pointer; white-space: nowrap; }
+.range-toggle button[aria-pressed="true"] { background: var(--surface); color: var(--ink); box-shadow: 0 1px 2px rgba(0,0,0,0.12); }
+.news-list { list-style: none; margin: 0; padding: 0; }
 .news-list li { padding: 12px 0; border-top: 1px solid var(--line); }
 .news-list li:first-child { border-top: 0; }
 .news-title { color: var(--ink); font-weight: 600; text-decoration: underline; text-decoration-color: var(--line); text-underline-offset: 3px; }
@@ -514,22 +518,26 @@ a.news-title:hover { text-decoration-color: currentColor; }
       <div class="subpanel" data-subpanel="social" hidden>
         <div class="panel">
           <div class="panel-head">
-            <h3>Social &amp; media signals <span class="pill alert-p" id="mediaSpike" hidden>Spike</span></h3>
-            <span class="eyebrow">NLP on posts, news and notices</span>
+            <h3>Social &amp; news signals <span class="pill alert-p" id="mediaSpike" hidden>Spike</span></h3>
+            <div class="range-toggle" role="group" aria-label="Time range">
+              <button type="button" data-range="live" aria-pressed="false">Live · 2 h</button>
+              <button type="button" data-range="day" aria-pressed="false">24 h</button>
+              <button type="button" data-range="week" aria-pressed="true">7 days</button>
+            </div>
           </div>
           <p class="muted" id="mediaStatus">Waiting for data…</p>
-          <span class="eyebrow">Illness posts per 10 minutes · last 2 hours</span>
-          <div class="chart-box small" id="mediaChart"></div>
-          <span class="eyebrow">Last 24 hours by place</span>
+          <div class="chart-box" id="mediaChart"></div>
+          <div class="legend" id="mediaLegend"></div>
+          <span class="eyebrow" id="mediaTableLabel">By place</span>
           <div class="table-box" id="mediaTable"></div>
         </div>
 
         <div class="panel">
           <div class="panel-head">
             <h3>News headlines</h3>
-            <span class="eyebrow">Local news feeds (RSS) · last 7 days</span>
+            <span class="eyebrow" id="newsLabel">Local news feeds (RSS)</span>
           </div>
-          <p class="muted" id="newsStatus">Waiting for data…</p>
+          <p class="muted" id="newsStatus"></p>
           <div id="newsTable"></div>
         </div>
       </div>
@@ -1606,8 +1614,9 @@ function renderDashboard() {
   const wwUp = wwSignals.filter(sig => sig.level);
   const alerts = clusters.filter(c => c.level === "alert").length;
   const allMedia = visibleMedia();
-  const media = mediaSummary(allMedia.filter(m => m.source !== "news"), clusters, wwSignals);
-  const news = newsSummary(allMedia.filter(m => m.source === "news"));
+  const socialAll = allMedia.filter(m => m.source !== "news"), newsAll = allMedia.filter(m => m.source === "news");
+  const media = mediaSummary(socialAll, clusters, wwSignals);
+  const news = newsSummary(newsAll);
   const lineageShift = [...new Set(state.lineages.map(d => d.site))].some(site => biggestLineageChange(lineageSeries(site)));
 
   // Headline
@@ -1644,8 +1653,7 @@ function renderDashboard() {
   renderRecent(reports);
   renderLeadTimes(wwSignals, clusters);
   renderGenomics();
-  renderMedia(media);
-  renderNews(news);
+  renderMediaPanel(mediaWindow(socialAll, newsAll, mediaRange(), clusters, wwSignals), media);
   renderAgreement(signalAgreement(clusters, wwSignals, media, news));
   renderBadges({ clusters, wwSignals, media, news, lineageShift });
   renderGlance({ week, prev, clusters, wwSignals, media, news });
@@ -1988,58 +1996,154 @@ function renderGlance({ week, prev, clusters, wwSignals, media, news }) {
   $("glance").innerHTML = parts.join(" ");
 }
 
-// Media panel: live line, a 2-hour stacked bar chart by syndrome, and a 24-hour table by place.
-function renderMedia(summary) {
-  const { bins, last30, spike, rows, read24, ill24, bySource } = summary;
-  $("mediaSpike").hidden = !spike;
-  const sources = Object.keys(bySource).map(k => `${MEDIA_SOURCES[k] || k} ${bySource[k]}`).join(" · ");
-  $("mediaStatus").textContent = read24
-    ? `${ill24} of ${read24} posts in the last 24 hours describe illness; ${last30} in the last 30 minutes. Sources: ${sources}.`
-    : "No posts processed yet. Start the NLP worker and open the demo feed (feed.html).";
+// Social & news panel: one timeline for both sources, with a time-range switch.
+// Social posts are stacked bars (by syndrome); news stories are diamonds on a lane above them,
+// on the same time axis, so a headline and a burst of posts line up when they're about the same thing.
+const MEDIA_RANGES = {
+  live: { name: "last 2 hours",  bins: 12, binMin: 10,   per: "10 minutes" },
+  day:  { name: "last 24 hours", bins: 24, binMin: 60,   per: "hour" },
+  week: { name: "last 7 days",   bins: 7,  binMin: 1440, per: "day" },
+};
+function mediaRange() {
+  if (!state.mediaRange) {
+    let saved = null;
+    try { saved = localStorage.getItem("sentinel-media-range"); } catch (e) {}
+    state.mediaRange = MEDIA_RANGES[saved] ? saved : "week";
+  }
+  return state.mediaRange;
+}
 
-  // 2-hour live chart
-  const W = 640, H = 170, L = 34, R = 10, T = 10, B = 26, slot = (W - L - R) / MEDIA_BINS, bw = slot * 0.7;
-  const totals = bins.map(b => Object.values(b).reduce((a, c) => a + c, 0));
+// Which bar a post or story falls in (or -1 if it's outside the window).
+// The 7-day view uses calendar days; the others count back from now.
+function mediaBin(m, range, now) {
+  const R = MEDIA_RANGES[range];
+  if (range === "week") {
+    const d = daysBetween(localDate(m.postedAt), localDate(new Date(now)));
+    return d >= 0 && d < R.bins ? R.bins - 1 - d : -1;
+  }
+  const mins = (now - new Date(m.postedAt).getTime()) / 60000;
+  const i = R.bins - 1 - Math.floor(mins / R.binMin);
+  return mins >= 0 && i >= 0 ? i : -1;
+}
+
+function mediaWindow(social, news, range, clusters, wwSignals) {
+  const now = Date.now(), R = MEDIA_RANGES[range];
+  const inWin = m => mediaBin(m, range, now) >= 0;
+  const posts = social.filter(inWin), stories = news.filter(inWin);
+  const postsIll = posts.filter(m => m.isIllness), storiesIll = stories.filter(m => m.isIllness);
+  const bins = Array.from({ length: R.bins }, () => ({ posts: {}, stories: [] }));
+  postsIll.forEach(m => { const b = bins[mediaBin(m, range, now)]; b.posts[m.c.syndrome] = (b.posts[m.c.syndrome] || 0) + 1; });
+  storiesIll.forEach(m => bins[mediaBin(m, range, now)].stories.push(m));
+
+  // One table for both sources: place + syndrome, with posts and stories side by side
+  const groups = {};
+  [...postsIll.map(m => [m, "posts"]), ...storiesIll.map(m => [m, "stories"])].forEach(([m, kind]) => {
+    const k = m.place + "|" + m.c.syndrome;
+    const g = groups[k] = groups[k] || { place: m.place, campus: m.campus, syndrome: m.c.syndrome, posts: 0, stories: 0, cats: {} };
+    g[kind]++; g.cats[m.c.category] = (g.cats[m.c.category] || 0) + 1;
+  });
+  const rows = Object.values(groups).map(g => ({ ...g, ...agreeFlags(g, clusters, wwSignals),
+    category: Object.keys(g.cats).sort((a, b) => (a === "undetermined") - (b === "undetermined") || g.cats[b] - g.cats[a])[0] }))
+    .sort((a, b) => (a.place === "unknown") - (b.place === "unknown") || (b.posts + b.stories) - (a.posts + a.stories));
+
+  const newsSorted = storiesIll.slice().sort((a, b) =>
+    (b.region === "asu_campus") - (a.region === "asu_campus") || b.postedAt.localeCompare(a.postedAt));
+  const latestStory = news.filter(m => m.isIllness).sort((a, b) => b.postedAt.localeCompare(a.postedAt))[0];
+  return { range, R, bins, rows, postsRead: posts.length, postsIll: postsIll.length, storiesRead: stories.length,
+    storiesIll: newsSorted, storiesHealth: stories.filter(m => m.healthTopic && m.healthTopic !== "not_health").length,
+    storiesLocal: storiesIll.filter(m => m.region === "asu_campus" || m.region === "arizona").length, latestStory };
+}
+
+// Does a symptom cluster or a wastewater signal match this place + syndrome?
+function agreeFlags(g, clusters, wwSignals) {
+  if (g.place === "unknown") return { reports: false, wastewater: false };
+  const reports = clusters.some(c => c.syndrome === g.syndrome &&
+    (c.residenceId ? (c.residenceId === g.place || (g.place.startsWith("campus-") && residenceCampus[c.residenceId] === g.campus)) : c.campusId === g.campus));
+  const wastewater = wwSignals.some(s => s.level && WW_TARGET[s.target].syndromes.includes(g.syndrome) && WW_SITE[s.site].campus === g.campus);
+  return { reports, wastewater };
+}
+
+function renderMediaPanel(win, live) {
+  const { R, bins, rows } = win;
+  document.querySelectorAll("[data-range]").forEach(b => b.setAttribute("aria-pressed", String(b.dataset.range === win.range)));
+  $("mediaSpike").hidden = !live.spike;
+  $("mediaStatus").innerHTML = (win.postsRead || win.storiesRead)
+    ? `In the ${R.name}: <b>${win.postsIll} illness post${win.postsIll === 1 ? "" : "s"}</b> (of ${win.postsRead} read) and ` +
+      `<b>${win.storiesIll.length} news ${win.storiesIll.length === 1 ? "story" : "stories"}</b> reporting illness (of ${win.storiesRead}).` +
+      (live.spike ? ` <b>Spike now:</b> ${live.last30} illness posts in the last 30 minutes.` : "")
+    : `Nothing in the ${R.name}.` + (win.range !== "week" ? " Try the 7-day view." : " Start the NLP worker, open the demo feed (feed.html), or run the rss command.");
+
+  // Chart: a news lane on top, social bars below, one time axis
+  const W = 640, H = 210, L = 34, Rm = 10, laneT = 8, laneH = 26, T = laneT + laneH + 10, B = 26;
+  const slot = (W - L - Rm) / R.bins, bw = slot * (R.bins > 12 ? 0.62 : 0.7);
+  const totals = bins.map(b => Object.values(b.posts).reduce((a, c) => a + c, 0));
   const step = Math.max(1, Math.ceil(Math.max(4, ...totals) / 4)), yMax = step * 4;
   const y = v => T + (H - T - B) * (1 - v / yMax);
-  let svg = `<svg viewBox="0 0 ${W} ${H}" role="img" aria-label="Illness posts per 10 minutes, last 2 hours">`;
+  const mono = `font-size="11" font-family="IBM Plex Mono, monospace" fill="var(--ink-2)"`;
+  let svg = `<svg viewBox="0 0 ${W} ${H}" role="img" aria-label="Illness posts per ${R.per} and news stories, ${R.name}">`;
+  svg += `<text x="${L - 6}" y="${laneT + laneH / 2 + 4}" text-anchor="end" ${mono}>news</text>`;
+  svg += `<line x1="${L}" x2="${W - Rm}" y1="${laneT + laneH / 2}" y2="${laneT + laneH / 2}" stroke="var(--line)" stroke-dasharray="2 4"/>`;
   for (let v = 0; v <= yMax; v += step) {
-    svg += `<line x1="${L}" x2="${W - R}" y1="${y(v)}" y2="${y(v)}" stroke="var(--line)"/>`;
-    svg += `<text x="${L - 6}" y="${y(v) + 4}" text-anchor="end" font-size="11" font-family="IBM Plex Mono, monospace" fill="var(--ink-2)">${v}</text>`;
+    svg += `<line x1="${L}" x2="${W - Rm}" y1="${y(v)}" y2="${y(v)}" stroke="var(--line)"/>`;
+    svg += `<text x="${L - 6}" y="${y(v) + 4}" text-anchor="end" ${mono}>${v}</text>`;
   }
+  const now = new Date();
+  const tick = i => {
+    const back = R.bins - 1 - i;
+    if (win.range === "week") return i === R.bins - 1 ? "today" : new Date(now.getTime() - back * 864e5).toLocaleDateString("en-US", { weekday: "short" });
+    if (win.range === "day") return back === 0 ? "now" : back % 6 === 0 ? `−${back} h` : "";
+    return back === 0 ? "now" : back === 6 ? "−1 h" : i === 0 ? "−2 h" : "";
+  };
   bins.forEach((b, i) => {
     const x = L + slot * i + (slot - bw) / 2;
     let acc = 0;
     SYNDROMES.forEach(s => {
-      const n = b[s.id] || 0; if (!n) return;
-      svg += `<rect x="${x.toFixed(1)}" y="${y(acc + n).toFixed(1)}" width="${bw.toFixed(1)}" height="${Math.max(0, y(acc) - y(acc + n) - 2).toFixed(1)}" rx="2" fill="${s.color}"><title>${n} ${s.name}</title></rect>`;
+      const n = b.posts[s.id] || 0; if (!n) return;
+      svg += `<rect x="${x.toFixed(1)}" y="${y(acc + n).toFixed(1)}" width="${bw.toFixed(1)}" height="${Math.max(0, y(acc) - y(acc + n) - 2).toFixed(1)}" rx="2" fill="${s.color}"><title>${n} ${s.name} post${n === 1 ? "" : "s"}</title></rect>`;
       acc += n;
     });
-    const label = i === MEDIA_BINS - 1 ? "now" : i === 0 ? "−2 h" : i === MEDIA_BINS / 2 ? "−1 h" : "";
-    if (label) svg += `<text x="${(x + bw / 2).toFixed(1)}" y="${H - 8}" text-anchor="middle" font-size="11" font-family="IBM Plex Mono, monospace" fill="var(--ink-2)">${label}</text>`;
+    // News diamonds: one per story, side by side within the bar's slot
+    const cx = x + bw / 2, cy = laneT + laneH / 2, gap = Math.min(13, slot / Math.max(1, b.stories.length));
+    b.stories.forEach((m, k) => {
+      const dx = cx + (k - (b.stories.length - 1) / 2) * gap, r = 6;
+      svg += `<path d="M${dx.toFixed(1)} ${cy - r}l${r} ${r}l${-r} ${r}l${-r} ${-r}z" fill="${syndromeById[m.c.syndrome].color}" stroke="var(--surface)" stroke-width="1.5"><title>${esc(m.headline || "News story")} (${esc(m.outlet || "news")}, ${timeAgo(m.postedAt)})</title></path>`;
+    });
+    const label = tick(i);
+    if (label) svg += `<text x="${(x + bw / 2).toFixed(1)}" y="${H - 8}" text-anchor="middle" ${mono}>${label}</text>`;
   });
   $("mediaChart").innerHTML = svg + `</svg>`;
+  const used = new Set(bins.flatMap(b => [...Object.keys(b.posts), ...b.stories.map(m => m.c.syndrome)]));
+  $("mediaLegend").innerHTML = SYNDROMES.filter(s => used.has(s.id)).map(s => `<span><i class="sw" style="background:${s.color}"></i>${s.name}</span>`).join("") +
+    `<span><svg width="12" height="12" aria-hidden="true"><path d="M6 0l6 6-6 6-6-6z" fill="var(--ink-2)"/></svg>News story (hover for headline)</span>` +
+    `<span class="muted">Bars: social posts per ${R.per}</span>`;
 
-  // 24-hour table
+  // Combined table
+  $("mediaTableLabel").textContent = `By place · ${R.name}`;
   const mark = (on, what) => on ? `<span class="pill ok-p" title="${what} agrees">yes</span>` : `<span class="muted">—</span>`;
+  const num = n => n ? `<td class="n">${n}</td>` : `<td class="n muted">—</td>`;
   $("mediaTable").innerHTML = rows.length
-    ? `<table><thead><tr><th>Place</th><th>Syndrome</th><th style="text-align:center">Posts</th><th>Likely type</th><th>Sources</th><th>Symptom reports</th><th>Wastewater</th></tr></thead><tbody>` +
-      rows.slice(0, 8).map(r => `<tr><td>${esc(mediaPlaceName(r.place))}</td>
+    ? `<table><thead><tr><th>Place</th><th>Syndrome</th><th style="text-align:center">Posts</th><th style="text-align:center">Stories</th><th>Likely type</th><th>Symptom reports</th><th>Wastewater</th></tr></thead><tbody>` +
+      rows.slice(0, 10).map(r => `<tr><td>${esc(mediaPlaceName(r.place))}</td>
         <td><span class="syn"><i class="sw" style="background:${syndromeById[r.syndrome].color}"></i>${syndromeById[r.syndrome].name}</span></td>
-        <td class="n">${r.n}</td><td>${r.category === "undetermined" ? "Undetermined" : categoryName[r.category]}</td>
-        <td class="muted">${Object.keys(r.sources).map(k => esc(MEDIA_SOURCES[k] || k)).join(", ")}</td>
+        ${num(r.posts)}${num(r.stories)}<td>${r.category === "undetermined" ? "Undetermined" : categoryName[r.category]}</td>
         <td>${mark(r.reports, "A symptom cluster")}</td><td>${mark(r.wastewater, "A wastewater signal")}</td></tr>`).join("") + `</tbody></table>`
-    : `<p class="muted">No illness posts in the last 24 hours.</p>`;
+    : `<p class="muted">No illness posts or stories in the ${R.name}.</p>`;
+
+  // Headlines for the same window
+  $("newsLabel").textContent = `Local news feeds (RSS) · ${R.name}`;
+  $("newsStatus").textContent = win.storiesRead
+    ? `${win.storiesRead} stor${win.storiesRead === 1 ? "y" : "ies"} read: ${win.storiesHealth} about health, ${win.storiesIll.length} reporting current infectious illness (${win.storiesLocal} in Arizona).`
+    : "";
+  const latest = win.latestStory && !win.storiesIll.length
+    ? ` Most recent: “${esc(win.latestStory.headline || "a story")}”, ${timeAgo(win.latestStory.postedAt)}.` : "";
+  renderNewsList(win.storiesIll, `No news stories reporting illness in the ${R.name}.${latest}`);
 }
 
-// News panel: illness headlines from the last 7 days, newest first, each linking to the story.
-function renderNews(news) {
-  $("newsStatus").textContent = news.read
-    ? `${news.read} stories read in the last ${NEWS_DAYS} days: ${news.health} about health, ${news.ill.length} reporting current infectious illness (${news.local.length} in Arizona). Feeds: ${news.outlets.join(", ") || "unnamed"}.`
-    : `No news stories in the last ${NEWS_DAYS} days. Run the worker's rss command (see worker/README.md).`;
+// Headline list: each story with its illness, place, kind of report and a link to the story.
+function renderNewsList(items, emptyText) {
   const safeLink = u => /^https?:\/\//.test(u || "") ? u : "";
-  $("newsTable").innerHTML = news.ill.length
-    ? `<ul class="news-list">` + news.ill.slice(0, 12).map(m => {
+  $("newsTable").innerHTML = items.length
+    ? `<ul class="news-list">` + items.slice(0, 12).map(m => {
         const syn = syndromeById[m.c.syndrome], link = safeLink(m.link);
         const type = m.c.category === "undetermined" ? "type undetermined" : categoryName[m.c.category].toLowerCase();
         const named = m.pathogen && m.pathogen !== "none" && m.pathogen !== "other" ? ` (${esc(pathogenName(m.pathogen))} named)` : "";
@@ -2057,7 +2161,7 @@ function renderNews(news) {
             <span class="muted">${esc(m.outlet || "News")} · ${timeAgo(m.postedAt)}</span>
           </div></li>`;
       }).join("") + `</ul>`
-    : `<p class="muted">No illness stories in the last ${NEWS_DAYS} days.</p>`;
+    : `<p class="muted">${emptyText}</p>`;
 }
 
 // "Where the signals agree": one row per place + syndrome flagged by any source,
@@ -2190,6 +2294,11 @@ function showScreen(name, keepSub) {
   }
 }
 document.querySelectorAll("[data-tab]").forEach(b => b.addEventListener("click", () => showScreen(b.dataset.tab)));
+document.querySelectorAll("[data-range]").forEach(b => b.addEventListener("click", () => {
+  state.mediaRange = b.dataset.range;
+  try { localStorage.setItem("sentinel-media-range", state.mediaRange); } catch (e) {}
+  renderDashboard();
+}));
 $("showDemo").addEventListener("change", e => { state.showDemo = e.target.checked; renderDashboard(); });
 setInterval(() => { if (!$("screen-dashboard").hidden) renderDashboard(); }, 60000);   // keep the live chart's time window moving
 $("lineageSite").addEventListener("change", e => { state.lineageSite = e.target.value; renderGenomics(); });
