@@ -85,6 +85,8 @@ def make_record(result, source, posted_at, demo):
         "confidence": result["confidence"],
         "method": result["method"],
         "placeCorrected": bool(result.get("place_corrected")),   # the grounding check changed the model's place
+        "symptomsAdded": result.get("symptoms_added", []),      # the symptom check added these (the model missed them)
+        "symptomsRemoved": result.get("symptoms_removed", []),  # ...and removed these (the text negates them)
         "demo": bool(demo),
     }
 
@@ -114,6 +116,10 @@ def run_live(use_openai):
         tag = (", ".join(result["symptoms"]) or "no symptoms") + f" @ {result['place']}"
         if result.get("place_corrected"):
             tag += "  (place corrected: the model named a place the post doesn't mention)"
+        if result.get("symptoms_added"):
+            tag += f"  (symptom check added: {', '.join(result['symptoms_added'])})"
+        if result.get("symptoms_removed"):
+            tag += f"  (symptom check removed, text says no: {', '.join(result['symptoms_removed'])})"
         print(f"  {'ILL ' if result['is_illness'] else 'skip'} [{result['method']}] {text[:60]!r} -> {tag}")
 
     def on_snapshot(snapshot, changes, read_time):

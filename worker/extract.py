@@ -37,6 +37,7 @@ import re
 
 SYMPTOM_IDS = [
     "cough", "sorethroat", "nose", "sob", "smell", "ear", "sinus",
+    "tonsils",
     "fever", "chills", "aches", "fatigue", "headache", "glands", "stiffneck",
     "nausea", "vomiting", "diarrhea", "blood", "cramps",
     "rash", "itchy", "eyes",
@@ -120,11 +121,15 @@ Rules:
   jokes, vaccine or clinic announcements, general health advice, and past illnesses.
 - who: "self" (the writer), "close_contact" (roommate, friend, floor, class), "other"
   (people in general), or "none".
-- symptoms: only symptoms the text says are present, mapped to the allowed ids. Never add a
-  symptom the text doesn't describe. Respect negation: "no fever" means fever is NOT present.
+- symptoms: EVERY symptom the text says is present, mapped to the allowed ids. Posts often list
+  several symptoms in a row: go through the text phrase by phrase and include each one, not just
+  the first. Never add a symptom the text doesn't describe. Respect negation: "no fever" or
+  "not coughing" means that symptom is NOT present, so leave it out.
   Map slang, e.g. "threw up"/"puking" -> vomiting; "the runs"/"blew up the toilet"/"on the toilet all night"
   -> diarrhea; "hurts to swallow"/"throat is on fire" -> sorethroat; "snot"/"can't stop sneezing"/"stuffy" -> nose;
-  "burning up" -> fever; "wiped out" -> fatigue; "my head is pounding" -> headache.
+  "burning up"/"101 temp"/"fever of 102" -> fever; "wiped out" -> fatigue; "my head is pounding" -> headache;
+  "swollen glands"/"lymph nodes are swollen"/"neck is swollen" -> glands;
+  "white spots/patches on my tonsils"/"pus on tonsils"/"swollen tonsils" -> tonsils.
 - place: ONLY a place the text names, using the most specific one (residence halls first, then campus).
   Most posts don't name a place: then answer "unknown". Never default to campus-tempe or any campus.
   Nicknames and buildings: "hassy" = tempe-hassayampa, "manzy" = tempe-manzanita, "vds" = tempe-vds,
@@ -142,6 +147,10 @@ Examples:
   {"is_illness": true, "who": "other", "symptoms": ["diarrhea"], "place": "campus-downtown", "pathogen": "none", "onset_days_ago": null, "confidence": 0.7}
 "tfw you wake up and it hurts to swallow" ->
   {"is_illness": true, "who": "self", "symptoms": ["sorethroat"], "place": "unknown", "pathogen": "none", "onset_days_ago": 0, "confidence": 0.85}
+"sore throat, 101 fever, glands in my neck are huge, white spots on my tonsils. no cough tho" ->
+  {"is_illness": true, "who": "self", "symptoms": ["sorethroat", "fever", "glands", "tonsils"], "place": "unknown", "pathogen": "none", "onset_days_ago": null, "confidence": 0.95}
+"roommate at tooker has been puking since last night, now the runs and stomach cramps" ->
+  {"is_illness": true, "who": "close_contact", "symptoms": ["vomiting", "diarrhea", "cramps"], "place": "tempe-tooker", "pathogen": "none", "onset_days_ago": 1, "confidence": 0.95}
 "that new dining hall is sick!" ->
   {"is_illness": false, "who": "none", "symptoms": [], "place": "unknown", "pathogen": "none", "onset_days_ago": null, "confidence": 0.95}
 "half my floor at hassy has noro, everyone's puking" ->
@@ -179,7 +188,7 @@ def extract_openai(text, client=None, model=None):
                 model=model, temperature=0, messages=messages,   # temperature 0: as repeatable as possible
                 response_format={"type": "json_schema",
                                  "json_schema": {"name": "illness_extraction", "strict": True, "schema": SCHEMA}})
-            return ground(clean(json.loads(response.choices[0].message.content), method="openai"), text)
+            return ground_symptoms(ground(clean(json.loads(response.choices[0].message.content), method="openai"), text), text)
         except Exception as e:
             if not _looks_like_unsupported(e):
                 raise
@@ -190,7 +199,7 @@ def extract_openai(text, client=None, model=None):
         messages=[{"role": "system", "content": INSTRUCTIONS + "\n\nReturn a JSON object matching this JSON Schema exactly:\n"
                    + json.dumps(SCHEMA)}, messages[1]],
         response_format={"type": "json_object"})
-    return ground(clean(json.loads(response.choices[0].message.content), method="openai"), text)
+    return ground_symptoms(ground(clean(json.loads(response.choices[0].message.content), method="openai"), text), text)
 
 
 def place_named(place, text):
@@ -227,6 +236,27 @@ def ground(r, text):
     return r
 
 
+def ground_symptoms(r, text):
+    """Symptom check, the same idea as the place check: compare the model's list with the text.
+
+    - Adds a symptom the text clearly states but the model left out (models often stop after
+      the first symptom in a list).
+    - Removes a symptom the text only mentions negated ("no cough"), since a wrongly kept
+      cough would cancel the Centor rule.
+    Records what changed in symptoms_added / symptoms_removed so it can be reported.
+    """
+    if not r["is_illness"]:
+        return r
+    found = symptom_mentions(text)
+    model = set(r["symptoms"])
+    added = sorted(s for s, (present, _) in found.items() if present and s not in model)
+    removed = sorted(s for s in model if s in found and found[s] == (False, True))
+    if not added and not removed:
+        return r
+    return {**r, "symptoms": sorted((model | set(added)) - set(removed)),
+            "symptoms_added": added, "symptoms_removed": removed}
+
+
 def _looks_like_unsupported(e):
     """True if the error says the response_format / json_schema option isn't supported."""
     msg = str(e).lower()
@@ -251,8 +281,9 @@ LEXICON = {
     "cramps": ["stomach cramps", "cramps", "stomach hurts", "stomach ache", "stomachache"],
     "fever": ["fever", "feverish", "burning up", "temperature of", "running a temp"],
     "chills": ["chills", "shivering"],
-    "cough": ["coughing", "cough"],
-    "sorethroat": ["sore throat", "throat hurts", "throat is killing"],
+    "cough": ["coughing", "coughs", "cough"],
+    "sorethroat": ["sore throat", "throat hurts", "throat is killing", "hurts to swallow", "throat is on fire",
+                   "scratchy throat", "throat is so sore", "throat kills"],
     "nose": ["runny nose", "stuffy", "congested", "sneezing", "sniffles"],
     "aches": ["body aches", "body hurts", "everything hurts", "aching"],
     "fatigue": ["exhausted", "wiped out", "so tired", "no energy", "fatigue"],
@@ -263,7 +294,10 @@ LEXICON = {
     "itchy": ["itchy", "itching"],
     "eyes": ["pink eye", "red eyes", "itchy eyes", "eyes are burning"],
     "stiffneck": ["stiff neck"],
-    "glands": ["swollen glands", "swollen lymph"],
+    "glands": ["swollen glands", "swollen lymph", "lymph nodes", "glands are swollen", "glands in my neck",
+               "neck glands", "swollen neck", "neck is swollen"],
+    "tonsils": ["swollen tonsils", "tonsils are swollen", "tonsils are huge", "on my tonsils", "on tonsils",
+                "white spots", "white patches", "pus on"],
     "ear": ["ear hurts", "earache", "ear infection"],
     "sinus": ["sinus"],
     "blood": ["blood in my stool", "bloody stool"],
@@ -286,14 +320,46 @@ def _has(text, phrase):
     return re.search(r"(?<![a-z])" + re.escape(phrase) + r"(?![a-z])", text) is not None
 
 
-def _negated(text, phrase):
-    """True if a negation word appears within the 3 words before the phrase."""
-    m = re.search(r"(?<![a-z])" + re.escape(phrase) + r"(?![a-z])", text)
-    if not m:
-        return False
-    before = text[:m.start()].split()[-3:]
-    window = " ".join(before)
+def _negated_at(text, start):
+    """True if a negation word appears within the 3 words before position `start`, in the same clause.
+
+    The window stops at punctuation and at "but"/"and", so in "no cough, sore throat" the "no"
+    belongs to cough only, and "sore throat" still counts.
+    """
+    clause = re.split(r"[,.;:!?\n]|\bbut\b|\band\b|\bplus\b|\balso\b", text[:start])[-1]
+    window = " ".join(clause.split()[-3:])
     return any(_has(window, n) for n in NEGATIONS)
+
+
+def _negated(text, phrase):
+    """True if the first mention of the phrase is negated."""
+    m = re.search(r"(?<![a-z])" + re.escape(phrase) + r"(?![a-z])", text)
+    return bool(m) and _negated_at(text, m.start())
+
+
+# A temperature of 100-106 °F written as a number ("101 temp", "fever of 102", "temp is 100.4") means fever.
+TEMP_F = re.compile(r"\b(?:temp(?:erature)?|fever)\s*(?:of|is|was|at|:)?\s*(?:like\s*)?10[0-6](?:\.\d)?\b"
+                    r"|\b10[0-6](?:\.\d)?\s*(?:°\s*f?|degrees?|f\b|temp|fever)")
+
+
+# Right after a symptom, these mean it is over ("my fever finally broke", "cough is gone").
+RESOLVED = re.compile(r"\s*(?:has |is |finally |is finally |has finally )*(?:broke|went away|gone|cleared up|better)\b")
+
+
+def symptom_mentions(text):
+    """{symptom id: (present, negated)} for every symptom phrase found in the text."""
+    t = " " + text.lower().replace("\u2019", "'") + " "
+    found = {}
+    for sid, phrases in LEXICON.items():
+        for p in phrases:
+            for m in re.finditer(r"(?<![a-z])" + re.escape(p) + r"(?![a-z])", t):
+                neg = _negated_at(t, m.start()) or bool(RESOLVED.match(t, m.end()))
+                pos, ng = found.get(sid, (False, False))
+                found[sid] = (pos or not neg, ng or neg)
+    for m in TEMP_F.finditer(t):
+        pos, ng = found.get("fever", (False, False))
+        found["fever"] = (pos or not _negated_at(t, m.start()), ng)
+    return found
 
 
 def find_place(text):
@@ -309,11 +375,7 @@ def extract_keywords(text):
     t = " " + text.lower().replace("’", "'") + " "
     figurative = any(re.search(p, t) for p in FIGURATIVE)
 
-    symptoms = []
-    for sid, phrases in LEXICON.items():
-        hit = next((p for p in phrases if _has(t, p)), None)
-        if hit and not _negated(t, hit):
-            symptoms.append(sid)
+    symptoms = [sid for sid, (present, _) in symptom_mentions(t).items() if present]
 
     # A strong word counts only if it isn't negated ("no covid, just allergies").
     strong = not figurative and any(not _negated(t, m.group(0)) for m in re.finditer(STRONG_SICK, t))

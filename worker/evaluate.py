@@ -37,6 +37,8 @@ def evaluate(path, use_openai):
     start = time.time()
     tp = fp = fn = tn = 0
     stp = sfp = sfn = 0
+    mtp = mfp = mfn = 0               # symptoms from the model alone, before the symptom check
+    checked = 0                       # posts where the symptom check changed the list
     place_ok = 0
     mistakes = []
     for i, row in enumerate(rows, 1):
@@ -60,6 +62,9 @@ def evaluate(path, use_openai):
         elif not got["is_illness"] and truth_ill: fn += 1
         else: tn += 1
         stp += len(got_sym & truth_sym); sfp += len(got_sym - truth_sym); sfn += len(truth_sym - got_sym)
+        raw_sym = (got_sym - set(got.get("symptoms_added", []))) | set(got.get("symptoms_removed", []))
+        mtp += len(raw_sym & truth_sym); mfp += len(raw_sym - truth_sym); mfn += len(truth_sym - raw_sym)
+        checked += raw_sym != got_sym
         place_ok += got["place"] == truth_place
 
         if got["is_illness"] != truth_ill or got_sym != truth_sym or got["place"] != truth_place:
@@ -77,6 +82,9 @@ def evaluate(path, use_openai):
         print(f"  ! {len(failed)} posts skipped because of API errors; scores cover the other {scored}")
     print(f"  Illness detection  precision {p:.2f}  recall {r:.2f}  F1 {f:.2f}   (TP {tp}, FP {fp}, FN {fn}, TN {tn})")
     print(f"  Symptoms           precision {sp:.2f}  recall {sr:.2f}  F1 {sf:.2f}")
+    if use_openai:
+        mp, mr, mf = prf(mtp, mfp, mfn)
+        print(f"    model alone      precision {mp:.2f}  recall {mr:.2f}  F1 {mf:.2f}   (symptom check changed {checked} posts)")
     print(f"  Place correct      {place_ok}/{scored} ({place_ok / scored:.0%})")
     if mistakes:
         print(f"\n  {len(mistakes)} posts with at least one mistake:")
