@@ -255,7 +255,13 @@
   .src-cell:hover span { text-decoration: underline; }
   .dot-on { width: 10px; height: 10px; border-radius: 50%; background: var(--accent); flex: none; display: inline-block; }
   /* Live demo tab: two big QR codes for the projector */
-  .demo-grid { display: grid; grid-template-columns: repeat(auto-fit, minmax(260px, 1fr)); gap: 16px; }
+  .news-list { list-style: none; margin: 0; padding: 0; }
+.news-list li { padding: 12px 0; border-top: 1px solid var(--line); }
+.news-list li:first-child { border-top: 0; }
+.news-title { color: var(--ink); font-weight: 600; text-decoration: underline; text-decoration-color: var(--line); text-underline-offset: 3px; }
+a.news-title:hover { text-decoration-color: currentColor; }
+.news-meta { display: flex; flex-wrap: wrap; gap: 4px 14px; margin-top: 6px; font-size: 13px; }
+.demo-grid { display: grid; grid-template-columns: repeat(auto-fit, minmax(260px, 1fr)); gap: 16px; }
   .demo-card { justify-items: center; text-align: center; }
   .demo-card .qr img, .demo-card .qr canvas { width: 220px; height: 220px; }
   .two-col { display: grid; grid-template-columns: repeat(auto-fit, minmax(320px, 1fr)); gap: 16px; }
@@ -386,7 +392,7 @@
         <button role="tab" data-sub="symptoms" aria-selected="false">Symptoms <span class="badge" id="badge-symptoms" hidden></span></button>
         <button role="tab" data-sub="wastewater" aria-selected="false">Wastewater <span class="badge" id="badge-wastewater" hidden></span></button>
         <button role="tab" data-sub="genomics" aria-selected="false">Genomics <span class="badge" id="badge-genomics" hidden></span></button>
-        <button role="tab" data-sub="social" aria-selected="false">Social <span class="badge" id="badge-social" hidden></span></button>
+        <button role="tab" data-sub="social" aria-selected="false">Social &amp; news <span class="badge" id="badge-social" hidden></span></button>
         <button role="tab" data-sub="demo" aria-selected="false">Live demo</button>
       </nav>
 
@@ -403,7 +409,7 @@
         <div class="panel">
           <div class="panel-head">
             <h3>Where the signals agree</h3>
-            <span class="eyebrow">Symptom reports · wastewater · social posts</span>
+            <span class="eyebrow">Symptom reports · wastewater · social posts · news</span>
           </div>
           <p class="muted">Each row is a place and illness type flagged by at least one source. The more sources agree, the stronger the evidence. Tap a source to open its tab.</p>
           <div class="table-box" id="agreeTable"></div>
@@ -516,6 +522,15 @@
           <div class="chart-box small" id="mediaChart"></div>
           <span class="eyebrow">Last 24 hours by place</span>
           <div class="table-box" id="mediaTable"></div>
+        </div>
+
+        <div class="panel">
+          <div class="panel-head">
+            <h3>News headlines</h3>
+            <span class="eyebrow">Local news feeds (RSS) · last 7 days</span>
+          </div>
+          <p class="muted" id="newsStatus">Waiting for data…</p>
+          <div id="newsTable"></div>
         </div>
       </div>
 
@@ -1297,6 +1312,26 @@ function mediaSummary(media, clusters, wwSignals) {
 }
 
 
+// News stories (source "news", from the worker's rss command). Kept apart from social posts:
+// one story can stand for many sick people and several outlets repeat it, so stories don't
+// count toward the social spike rule. They're listed as headlines and count as their own
+// source in "Where the signals agree".
+const NEWS_DAYS = 7;
+function newsSummary(news) {
+  const since = Date.now() - NEWS_DAYS * 864e5;
+  const recent = news.filter(m => new Date(m.postedAt).getTime() >= since);
+  const ill = recent.filter(m => m.isIllness).sort((a, b) => b.postedAt.localeCompare(a.postedAt));
+  const groups = {};
+  ill.forEach(m => {
+    const k = m.place + "|" + m.c.syndrome;
+    const g = groups[k] = groups[k] || { place: m.place, syndrome: m.c.syndrome, n: 0 };
+    g.n++;
+  });
+  return { read: recent.length, ill, rows: Object.values(groups),
+    outlets: [...new Set(recent.map(m => m.outlet).filter(Boolean))] };
+}
+
+
 /* =====================================================================
    4. DATA STORAGE — Firebase Cloud Firestore
    Each report is one document in the "reports" collection.
@@ -1555,7 +1590,9 @@ function renderDashboard() {
   clusters.forEach(c => { c.ww = wwSignals.filter(sig => sig.level && wwMatches(sig, c)); });
   const wwUp = wwSignals.filter(sig => sig.level);
   const alerts = clusters.filter(c => c.level === "alert").length;
-  const media = mediaSummary(visibleMedia(), clusters, wwSignals);
+  const allMedia = visibleMedia();
+  const media = mediaSummary(allMedia.filter(m => m.source !== "news"), clusters, wwSignals);
+  const news = newsSummary(allMedia.filter(m => m.source === "news"));
   const lineageShift = [...new Set(state.lineages.map(d => d.site))].some(site => biggestLineageChange(lineageSeries(site)));
 
   // Headline
@@ -1593,9 +1630,10 @@ function renderDashboard() {
   renderLeadTimes(wwSignals, clusters);
   renderGenomics();
   renderMedia(media);
-  renderAgreement(signalAgreement(clusters, wwSignals, media));
-  renderBadges({ clusters, wwSignals, media, lineageShift });
-  renderGlance({ week, prev, clusters, wwSignals, media });
+  renderNews(news);
+  renderAgreement(signalAgreement(clusters, wwSignals, media, news));
+  renderBadges({ clusters, wwSignals, media, news, lineageShift });
+  renderGlance({ week, prev, clusters, wwSignals, media, news });
 }
 
 function kpi(label, num, sub) {
@@ -1870,7 +1908,7 @@ function renderGenomics() {
 
 // "At a glance": plain sentences built by rules from the numbers on the dashboard.
 // Every sentence comes from a value already shown above, so each one can be checked.
-function renderGlance({ week, prev, clusters, wwSignals, media }) {
+function renderGlance({ week, prev, clusters, wwSignals, media, news }) {
   const parts = [];
   const plural = (n, word) => `${n} ${word}${n === 1 ? "" : "s"}`;
   const plain = { ili: "flu-like illness", resp: "respiratory illness", gi: "stomach illness",
@@ -1921,7 +1959,14 @@ function renderGlance({ week, prev, clusters, wwSignals, media }) {
   if (topMedia && topMedia.n >= 3) parts.push(`${topMedia.n} posts in the last 24 hours describe ${plain[topMedia.syndrome]} at ${esc(mediaPlaceName(topMedia.place))}` +
     (topMedia.reports || topMedia.wastewater ? `, matching ${[topMedia.reports && "symptom reports", topMedia.wastewater && "wastewater"].filter(Boolean).join(" and ")}.` : "."));
 
-  // 7. Closing line
+  // 7. Local news
+  if (news && news.ill.length) {
+    const named = news.ill.filter(m => m.place !== "unknown");
+    parts.push(`${news.ill.length} news ${news.ill.length === 1 ? "story" : "stories"} this week ${news.ill.length === 1 ? "reports" : "report"} illness` +
+      (named.length ? `, including ${plain[named[0].c.syndrome]} at ${esc(mediaPlaceName(named[0].place))}.` : ", none naming a campus."));
+  }
+
+  // 8. Closing line
   parts.push(!clusters.length && !wwSignals.some(s => s.level)
     ? "All quiet: no symptom clusters and no wastewater rises."
     : "Everything else is near normal.");
@@ -1972,9 +2017,33 @@ function renderMedia(summary) {
     : `<p class="muted">No illness posts in the last 24 hours.</p>`;
 }
 
+// News panel: illness headlines from the last 7 days, newest first, each linking to the story.
+function renderNews(news) {
+  $("newsStatus").textContent = news.read
+    ? `${news.ill.length} of ${news.read} stories in the last ${NEWS_DAYS} days report illness. Feeds: ${news.outlets.join(", ") || "unnamed"}.`
+    : `No news stories in the last ${NEWS_DAYS} days. Run the worker's rss command (see worker/README.md).`;
+  const safeLink = u => /^https?:\/\//.test(u || "") ? u : "";
+  $("newsTable").innerHTML = news.ill.length
+    ? `<ul class="news-list">` + news.ill.slice(0, 12).map(m => {
+        const syn = syndromeById[m.c.syndrome], link = safeLink(m.link);
+        const type = m.c.category === "undetermined" ? "type undetermined" : categoryName[m.c.category].toLowerCase();
+        const named = m.pathogen && m.pathogen !== "none" && m.pathogen !== "other" ? ` (${esc(m.pathogen)} named)` : "";
+        const title = esc(m.headline || "Story");
+        return `<li>
+          ${link ? `<a class="news-title" href="${esc(link)}" target="_blank" rel="noopener noreferrer">${title}</a>` : `<span class="news-title">${title}</span>`}
+          <div class="news-meta">
+            <span class="syn"><i class="sw" style="background:${syn.color}"></i>${syn.name}</span>
+            <span>${esc(mediaPlaceName(m.place))}</span>
+            <span>${type}${named}</span>
+            <span class="muted">${esc(m.outlet || "News")} · ${timeAgo(m.postedAt)}</span>
+          </div></li>`;
+      }).join("") + `</ul>`
+    : `<p class="muted">No illness stories in the last ${NEWS_DAYS} days.</p>`;
+}
+
 // "Where the signals agree": one row per place + syndrome flagged by any source,
 // with what each source says about it. Sorted so the best-supported rows come first.
-function signalAgreement(clusters, wwSignals, media) {
+function signalAgreement(clusters, wwSignals, media, news = { rows: [] }) {
   const campusOf = place => RESIDENCE_CAMPUS_OF(place);
   const rows = {};
   const add = (place, syndrome) => {
@@ -1988,6 +2057,7 @@ function signalAgreement(clusters, wwSignals, media) {
     else add("campus-" + site.campus, syn);
   });
   media.rows.forEach(r => add(r.place, r.syndrome));
+  news.rows.forEach(r => add(r.place, r.syndrome));
 
   // Does a row's place cover (or sit inside) another place?
   const overlaps = (rowPlace, otherPlace) => rowPlace === otherPlace ||
@@ -2004,9 +2074,10 @@ function signalAgreement(clusters, wwSignals, media) {
         ? WW_SITE[s.site].residences.some(r => overlaps(row.place, r))
         : overlaps(row.place, "campus-" + WW_SITE[s.site].campus))).sort(wwSort)[0];
     const posts = media.rows.filter(r => r.syndrome === row.syndrome && overlaps(row.place, r.place)).reduce((n, r) => n + r.n, 0);
-    const sources = (cl ? 1 : 0) + (ww ? 1 : 0) + (posts ? 1 : 0);
+    const stories = news.rows.filter(r => r.syndrome === row.syndrome && overlaps(row.place, r.place)).reduce((n, r) => n + r.n, 0);
+    const sources = (cl ? 1 : 0) + (ww ? 1 : 0) + (posts ? 1 : 0) + (stories ? 1 : 0);
     const strength = (cl && cl.level === "alert" ? 2 : cl ? 1 : 0) + (ww && ww.level === "alert" ? 2 : ww ? 1 : 0) + (posts >= 3 ? 1 : 0);
-    return { ...row, cl, ww, posts, sources, strength };
+    return { ...row, cl, ww, posts, stories, sources, strength: strength + (stories ? 1 : 0) };
   })
   // Leave out a campus row when a hall on that campus already shows the same illness with as many sources.
   .filter((row, _, all) => !(row.place.startsWith("campus-") && all.some(r => !r.place.startsWith("campus-") &&
@@ -2026,17 +2097,18 @@ function renderAgreement(rows) {
   const cell = (on, text, sub) => on
     ? `<button class="src-cell" data-go="${sub}"><i class="dot-on"></i><span>${text}</span></button>`
     : `<span class="muted">—</span>`;
-  $("agreeTable").innerHTML = `<table><thead><tr><th>Place</th><th>Illness</th><th>Symptom reports</th><th>Wastewater</th><th>Social posts</th><th>Agreement</th></tr></thead><tbody>` +
+  $("agreeTable").innerHTML = `<table><thead><tr><th>Place</th><th>Illness</th><th>Symptom reports</th><th>Wastewater</th><th>Social posts</th><th>News</th><th>Agreement</th></tr></thead><tbody>` +
     rows.slice(0, 10).map(r => {
       const syn = syndromeById[r.syndrome];
-      const agreeCls = r.sources === 3 ? "alert-p" : r.sources === 2 ? "watch-p" : "ok-p";
+      const agreeCls = r.sources >= 3 ? "alert-p" : r.sources === 2 ? "watch-p" : "ok-p";
       return `<tr>
         <td>${esc(mediaPlaceName(r.place))}</td>
         <td><span class="syn"><i class="sw" style="background:${syn.color}"></i>${syn.name}</span></td>
         <td>${cell(r.cl, r.cl ? `${r.cl.count} reports · ${r.cl.level}` : "", "symptoms")}</td>
         <td>${cell(r.ww, r.ww ? `${esc(WW_TARGET[r.ww.target].name)} ${r.ww.ratioText.replace(" baseline", "")}` : "", "wastewater")}</td>
         <td>${cell(r.posts, `${r.posts} post${r.posts === 1 ? "" : "s"}`, "social")}</td>
-        <td><span class="pill ${agreeCls}">${r.sources} of 3</span></td></tr>`;
+        <td>${cell(r.stories, `${r.stories} stor${r.stories === 1 ? "y" : "ies"}`, "social")}</td>
+        <td><span class="pill ${agreeCls}">${r.sources} of 4</span></td></tr>`;
     }).join("") + `</tbody></table>`;
   $("agreeTable").querySelectorAll("[data-go]").forEach(b => b.addEventListener("click", () => showSub(b.dataset.go)));
 }
