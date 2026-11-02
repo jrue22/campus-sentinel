@@ -56,7 +56,8 @@ def fetch(source, cache=None):
     if not re.match(r"https?://", source):
         with open(source, encoding="utf-8") as f:
             return f.read()
-    headers = {"User-Agent": USER_AGENT}
+    headers = {"User-Agent": USER_AGENT,
+               "Accept": "application/rss+xml, application/atom+xml, application/xml;q=0.9, text/xml;q=0.8, */*;q=0.5"}
     if cache is not None and source in cache:
         headers.update(cache[source])
     try:

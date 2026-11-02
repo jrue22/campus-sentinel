@@ -204,17 +204,27 @@ def read_feed(source, use_openai, db, done, cache, demo_shift=None, only_new=Tru
     if xml_text is None:
         print(f"  {source}: no change since last check")
         return 0, 0
-    outlet, stories = newsfeed.parse(xml_text)
+    try:
+        outlet, stories = newsfeed.parse(xml_text)
+    except Exception as e:
+        save_debug(xml_text)
+        raise ValueError(f"couldn't read the feed ({e}). The response starts: {xml_text[:150]!r}")
     now = dt.datetime.now(dt.timezone.utc)
-    n = ill = 0
+    n = ill = seen = old = 0
+    if not stories:
+        save_debug(xml_text)
+        print(f"  {source}: the feed has no stories. The response starts: {xml_text[:150]!r}")
     for story in stories:
         sid = story_id(source, story)
         if only_new and sid in done:
+            seen += 1
             continue
         published = story["published"] or now
         if demo_shift is not None:
             published = published + demo_shift                      # practice feed: move the dates up to today
         if now - published > dt.timedelta(days=NEWS_MAX_AGE_DAYS):
+            old += 1
+            print(f"  old  {story['title'][:70]!r} (published {published:%Y-%m-%d}, more than {NEWS_MAX_AGE_DAYS} days ago)")
             continue
         result = extract(newsfeed.story_text(story), use_openai)
         posted_at = published.strftime("%Y-%m-%dT%H:%M:%S.000Z")
@@ -228,7 +238,17 @@ def read_feed(source, use_openai, db, done, cache, demo_shift=None, only_new=Tru
         if result["pathogen"] != "none":
             tag += f"  pathogen: {result['pathogen']}"
         print(f"  {'ILL ' if result['is_illness'] else 'skip'} [{result['method']}] {story['title'][:70]!r} -> {tag}")
+    print(f"  {outlet or source}: {len(stories)} stories in the feed, {n} analyzed, {ill} about illness"
+          + (f", {seen} already seen" if seen else "") + (f", {old} too old" if old else ""))
     return n, ill
+
+
+def save_debug(text):
+    """Keep the raw response next to this file, so a feed problem can be looked at."""
+    path = os.path.join(os.path.dirname(os.path.abspath(__file__)), "feed-debug.xml")
+    with open(path, "w", encoding="utf-8") as f:
+        f.write(text)
+    print(f"  (saved the raw response as {os.path.basename(path)})")
 
 
 def run_rss(sources, use_openai, every_min=None, dry_run=False, drip_min=None):
@@ -248,8 +268,7 @@ def run_rss(sources, use_openai, every_min=None, dry_run=False, drip_min=None):
             continue
         shift = (dt.datetime.now(dt.timezone.utc) - max(dates)) if dates else dt.timedelta(0)
         print(f"Practice feed {path}: {outlet} ({len(stories)} stories, re-dated to end now)")
-        n, ill = read_feed(path, use_openai, db, done, None, demo_shift=shift, only_new=False)
-        print(f"Done: {n} stories, {ill} about illness.")
+        read_feed(path, use_openai, db, done, None, demo_shift=shift, only_new=False)
 
     if not web:
         return
@@ -257,9 +276,7 @@ def run_rss(sources, use_openai, every_min=None, dry_run=False, drip_min=None):
         print(f"Checking {len(web)} feed(s) at {dt.datetime.now().strftime('%H:%M')}")
         for url in web:
             try:
-                n, ill = read_feed(url, use_openai, db, done, cache)
-                if n:
-                    print(f"  {url}: {n} new stories, {ill} about illness")
+                read_feed(url, use_openai, db, done, cache)
             except Exception as e:                                   # one broken feed shouldn't stop the others
                 print(f"  ! {url}: {type(e).__name__}: {str(e)[:150]}")
         if not every_min:
