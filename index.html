@@ -1253,15 +1253,27 @@ const MEDIA_PATHOGENS = {
   norovirus: ["gi", "viral"], rotavirus: ["gi", "viral"], influenza: ["ili", "viral"], covid: ["ili", "viral"],
   rsv: ["resp", "viral"], strep: ["ili", "bacterial"], salmonella: ["gi", "bacterial"],
   cryptosporidium: ["gi", "parasitic"], measles: ["skin", "viral"], mono: ["ili", "viral"],
+  // Named mostly in news
+  pertussis: ["resp", "bacterial"], valley_fever: ["resp", "fungal"], hantavirus: ["resp", "viral"],
+  hepatitis_a: ["gi", "viral"], ecoli: ["gi", "bacterial"], listeria: ["gi", "bacterial"], mpox: ["skin", "viral"],
+  tuberculosis: ["resp", "bacterial"], west_nile: ["neuro", "viral"], legionella: ["resp", "bacterial"],
+  meningococcal: ["neuro", "bacterial"], chickenpox: ["skin", "viral"],
 };
+const PATHOGEN_NAMES = { covid: "COVID-19", rsv: "RSV", strep: "strep", mono: "mono", valley_fever: "valley fever",
+  hepatitis_a: "hepatitis A", ecoli: "E. coli", west_nile: "West Nile", meningococcal: "meningococcal disease" };
+const pathogenName = id => PATHOGEN_NAMES[id] || id;
 
 // One media record -> the same shape as a survey report, then classify() it.
 function classifyMedia(m) {
   const named = MEDIA_PATHOGENS[m.pathogen];
   const hasSymptoms = (m.symptoms || []).some(s => knownSymptoms.has(s));
   if (named && !hasSymptoms) return { syndrome: named[0], category: named[1], confidence: "named", urgent: false };
+  // News often gives the illness pattern ("12 sickened after a potluck" = stomach) without symptoms.
+  const given = syndromeById[m.syndrome] ? m.syndrome : null;
+  if (!named && !hasSymptoms && given) return { syndrome: given, category: "undetermined", confidence: "low", urgent: false };
   const c = classifyMediaSymptoms(m);
-  return named ? { ...c, category: named[1] } : c;
+  if (named) return { ...c, syndrome: named[0], category: named[1] };
+  return c.syndrome === "other" && given ? { ...c, syndrome: given } : c;
 }
 function classifyMediaSymptoms(m) {
   const posted = new Date(m.postedAt);
@@ -1320,14 +1332,17 @@ const NEWS_DAYS = 7;
 function newsSummary(news) {
   const since = Date.now() - NEWS_DAYS * 864e5;
   const recent = news.filter(m => new Date(m.postedAt).getTime() >= since);
-  const ill = recent.filter(m => m.isIllness).sort((a, b) => b.postedAt.localeCompare(a.postedAt));
+  const ill = recent.filter(m => m.isIllness).sort((a, b) =>
+    (b.region === "asu_campus") - (a.region === "asu_campus") || b.postedAt.localeCompare(a.postedAt));
+  const health = recent.filter(m => m.healthTopic && m.healthTopic !== "not_health");
+  const local = ill.filter(m => m.region === "asu_campus" || m.region === "arizona");
   const groups = {};
   ill.forEach(m => {
     const k = m.place + "|" + m.c.syndrome;
     const g = groups[k] = groups[k] || { place: m.place, syndrome: m.c.syndrome, n: 0 };
     g.n++;
   });
-  return { read: recent.length, ill, rows: Object.values(groups),
+  return { read: recent.length, ill, local, health: health.length, rows: Object.values(groups),
     outlets: [...new Set(recent.map(m => m.outlet).filter(Boolean))] };
 }
 
@@ -1960,9 +1975,9 @@ function renderGlance({ week, prev, clusters, wwSignals, media, news }) {
     (topMedia.reports || topMedia.wastewater ? `, matching ${[topMedia.reports && "symptom reports", topMedia.wastewater && "wastewater"].filter(Boolean).join(" and ")}.` : "."));
 
   // 7. Local news
-  if (news && news.ill.length) {
-    const named = news.ill.filter(m => m.place !== "unknown");
-    parts.push(`${news.ill.length} news ${news.ill.length === 1 ? "story" : "stories"} this week ${news.ill.length === 1 ? "reports" : "report"} illness` +
+  if (news && news.local.length) {
+    const named = news.local.filter(m => m.place !== "unknown");
+    parts.push(`${news.local.length} Arizona news ${news.local.length === 1 ? "story" : "stories"} this week ${news.local.length === 1 ? "reports" : "report"} infectious illness` +
       (named.length ? `, including ${plain[named[0].c.syndrome]} at ${esc(mediaPlaceName(named[0].place))}.` : ", none naming a campus."));
   }
 
@@ -2020,20 +2035,24 @@ function renderMedia(summary) {
 // News panel: illness headlines from the last 7 days, newest first, each linking to the story.
 function renderNews(news) {
   $("newsStatus").textContent = news.read
-    ? `${news.ill.length} of ${news.read} stories in the last ${NEWS_DAYS} days report illness. Feeds: ${news.outlets.join(", ") || "unnamed"}.`
+    ? `${news.read} stories read in the last ${NEWS_DAYS} days: ${news.health} about health, ${news.ill.length} reporting current infectious illness (${news.local.length} in Arizona). Feeds: ${news.outlets.join(", ") || "unnamed"}.`
     : `No news stories in the last ${NEWS_DAYS} days. Run the worker's rss command (see worker/README.md).`;
   const safeLink = u => /^https?:\/\//.test(u || "") ? u : "";
   $("newsTable").innerHTML = news.ill.length
     ? `<ul class="news-list">` + news.ill.slice(0, 12).map(m => {
         const syn = syndromeById[m.c.syndrome], link = safeLink(m.link);
         const type = m.c.category === "undetermined" ? "type undetermined" : categoryName[m.c.category].toLowerCase();
-        const named = m.pathogen && m.pathogen !== "none" && m.pathogen !== "other" ? ` (${esc(m.pathogen)} named)` : "";
+        const named = m.pathogen && m.pathogen !== "none" && m.pathogen !== "other" ? ` (${esc(pathogenName(m.pathogen))} named)` : "";
+        const kind = { cases_or_outbreak: "Cases or outbreak", exposure_warning: "Exposure warning" }[m.reportType] || "Illness report";
+        const where = m.place && m.place !== "unknown" ? mediaPlaceName(m.place)
+          : { arizona: "Arizona, no campus named", elsewhere_us: "Outside Arizona", outside_us: "Outside the US" }[m.region] || "Place not named";
         const title = esc(m.headline || "Story");
         return `<li>
           ${link ? `<a class="news-title" href="${esc(link)}" target="_blank" rel="noopener noreferrer">${title}</a>` : `<span class="news-title">${title}</span>`}
           <div class="news-meta">
             <span class="syn"><i class="sw" style="background:${syn.color}"></i>${syn.name}</span>
-            <span>${esc(mediaPlaceName(m.place))}</span>
+            <span>${esc(where)}</span>
+            <span>${kind}${Number.isInteger(m.caseCount) ? ` · ${m.caseCount} sick` : ""}</span>
             <span>${type}${named}</span>
             <span class="muted">${esc(m.outlet || "News")} · ${timeAgo(m.postedAt)}</span>
           </div></li>`;
