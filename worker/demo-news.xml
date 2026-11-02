@@ -1,0 +1,113 @@
+<?xml version="1.0" encoding="UTF-8"?>
+<!--
+  PRACTICE FEED for testing Campus Sentinel. Every story below is made up.
+  "Valley Demo News" is not a real outlet, and the links point to example.com.
+  The worker marks these stories as example data (demo: true), so the dashboard's
+  "Include example data" switch hides them.
+  It mixes illness stories with ordinary news and a few tricky cases
+  (a flu-shot clinic, last year's flu season, "sick" used as slang).
+-->
+<rss version="2.0" xmlns:content="http://purl.org/rss/1.0/modules/content/">
+  <channel>
+    <title>Valley Demo News (practice feed)</title>
+    <link>https://example.com/valley-demo-news</link>
+    <description>Made-up local news for testing Campus Sentinel. Not a real news outlet.</description>
+    <language>en-us</language>
+
+    <item>
+      <title>Norovirus suspected after dozens fall ill at ASU's Hassayampa residence hall</title>
+      <link>https://example.com/valley-demo-news/hassayampa-norovirus</link>
+      <guid isPermaLink="false">vdn-001</guid>
+      <pubDate>Mon, 02 Nov 2026 15:10:00 GMT</pubDate>
+      <description>Students at Hassayampa Academic Village on the Tempe campus began vomiting and having diarrhea late last week. Campus health staff are deep-cleaning shared bathrooms.</description>
+    </item>
+
+    <item>
+      <title>Free flu shot clinics open at Valley libraries this week</title>
+      <link>https://example.com/valley-demo-news/flu-shot-clinics</link>
+      <guid isPermaLink="false">vdn-002</guid>
+      <pubDate>Mon, 02 Nov 2026 13:30:00 GMT</pubDate>
+      <description>No appointment needed. Bring a photo ID; shots are free for anyone 6 months and older.</description>
+    </item>
+
+    <item>
+      <title>Wave of fevers and coughs reported at Gordon Commons in downtown Phoenix</title>
+      <link>https://example.com/valley-demo-news/gordon-commons-flu</link>
+      <guid isPermaLink="false">vdn-003</guid>
+      <pubDate>Sun, 01 Nov 2026 23:45:00 GMT</pubDate>
+      <description>Residents of the ASU Downtown Phoenix dorm say many students have a fever, cough and body aches. Several tested positive for the flu at the campus clinic.</description>
+    </item>
+
+    <item>
+      <title>Light rail extension opens new stops in Tempe</title>
+      <link>https://example.com/valley-demo-news/light-rail-tempe</link>
+      <guid isPermaLink="false">vdn-004</guid>
+      <pubDate>Sun, 01 Nov 2026 18:00:00 GMT</pubDate>
+      <description>Trains will run every 12 minutes during the day. Riding is free through the weekend.</description>
+    </item>
+
+    <item>
+      <title>Salmonella cases tied to food truck near ASU West Valley campus</title>
+      <link>https://example.com/valley-demo-news/west-valley-salmonella</link>
+      <guid isPermaLink="false">vdn-005</guid>
+      <pubDate>Sun, 01 Nov 2026 14:20:00 GMT</pubDate>
+      <description>Several people had diarrhea, fever and stomach cramps after eating at the truck last week. The county closed it while tests are done.</description>
+    </item>
+
+    <item>
+      <title>Booker's sick fadeaway seals Suns comeback win</title>
+      <link>https://example.com/valley-demo-news/suns-comeback</link>
+      <guid isPermaLink="false">vdn-006</guid>
+      <pubDate>Sun, 01 Nov 2026 05:40:00 GMT</pubDate>
+      <description>Phoenix outscored its opponent by 14 in the fourth quarter.</description>
+    </item>
+
+    <item>
+      <title>Mono going around Century Hall, Polytechnic students say</title>
+      <link>https://example.com/valley-demo-news/century-hall-mono</link>
+      <guid isPermaLink="false">vdn-007</guid>
+      <pubDate>Sat, 31 Oct 2026 20:15:00 GMT</pubDate>
+      <description>Students describe a sore throat, fever and exhaustion that has lasted more than a week. The campus clinic confirmed a handful of mono cases.</description>
+    </item>
+
+    <item>
+      <title>Dust storm warning for the Valley on Tuesday afternoon</title>
+      <link>https://example.com/valley-demo-news/dust-storm-warning</link>
+      <guid isPermaLink="false">vdn-008</guid>
+      <pubDate>Sat, 31 Oct 2026 16:00:00 GMT</pubDate>
+      <description>Drivers should &quot;pull aside, stay alive&quot; if visibility drops suddenly on I-10.</description>
+    </item>
+
+    <item>
+      <title>Strep throat cases reported at a Mesa elementary school</title>
+      <link>https://example.com/valley-demo-news/mesa-strep</link>
+      <guid isPermaLink="false">vdn-009</guid>
+      <pubDate>Fri, 30 Oct 2026 21:30:00 GMT</pubDate>
+      <description>Parents were told to watch for sore throat and fever and to keep sick children home.</description>
+    </item>
+
+    <item>
+      <title>Last year's flu season was the worst in a decade, report finds</title>
+      <link>https://example.com/valley-demo-news/flu-season-report</link>
+      <guid isPermaLink="false">vdn-010</guid>
+      <pubDate>Fri, 30 Oct 2026 15:00:00 GMT</pubDate>
+      <description>Hospital visits peaked in January. Researchers say vaccination rates fell for the third year in a row.</description>
+    </item>
+
+    <item>
+      <title>Polytechnic campus hosts student drone competition</title>
+      <link>https://example.com/valley-demo-news/poly-drones</link>
+      <guid isPermaLink="false">vdn-011</guid>
+      <pubDate>Thu, 29 Oct 2026 19:00:00 GMT</pubDate>
+      <description>Teams from 14 schools flew obstacle courses at ASU's Polytechnic campus in Mesa.</description>
+    </item>
+
+    <item>
+      <title>Possible measles exposure at a Phoenix shopping center, county says</title>
+      <link>https://example.com/valley-demo-news/measles-exposure</link>
+      <guid isPermaLink="false">vdn-012</guid>
+      <pubDate>Thu, 29 Oct 2026 17:30:00 GMT</pubDate>
+      <description>A person with measles visited stores on Saturday. Anyone who develops a fever and rash in the next three weeks should call a doctor first.</description>
+    </item>
+  </channel>
+</rss>

@@ -286,7 +286,7 @@ LEXICON = {
                    "scratchy throat", "throat is so sore", "throat kills"],
     "nose": ["runny nose", "stuffy", "congested", "sneezing", "sniffles"],
     "aches": ["body aches", "body hurts", "everything hurts", "aching"],
-    "fatigue": ["exhausted", "wiped out", "so tired", "no energy", "fatigue"],
+    "fatigue": ["exhausted", "exhaustion", "wiped out", "so tired", "no energy", "fatigue"],
     "headache": ["headache", "migraine", "head is pounding", "head hurts"],
     "sob": ["can't breathe", "short of breath", "trouble breathing"],
     "smell": ["can't taste", "can't smell", "lost my taste", "lost my smell"],

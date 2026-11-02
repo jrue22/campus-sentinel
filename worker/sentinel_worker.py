@@ -5,10 +5,13 @@ Runs on your laptop (or any computer) and turns text into illness signals.
 
   python sentinel_worker.py live              # watch the demo feed and process new posts as they arrive
   python sentinel_worker.py ingest posts.csv  # process a file of collected posts (news, Reddit, transcripts...)
+  python sentinel_worker.py rss URL [URL...]  # read news feeds (RSS or Atom); add --every 30 to re-check every 30 min
+  python sentinel_worker.py rss demo-news.xml # the practice feed (made-up stories, marked as example data)
   python sentinel_worker.py test "text..."    # try the extractor on one sentence
   python sentinel_worker.py models            # list the models your API key can use
 
 Add --keywords to any command to skip OpenAI and use the keyword method.
+Add --dry-run to rss to print the results without saving anything (no Firebase key needed).
 
 What it writes: one document per post in the "media_extracted" collection with
 the extracted fields only (source type, time, symptoms, place, onset). It never
@@ -27,11 +30,13 @@ import glob
 import hashlib
 import json
 import os
+import re
 import sys
 import threading
 import time
 
 from extract import extract
+import newsfeed
 
 SOURCES = {"demo-feed", "news", "school", "reddit", "x", "tiktok", "youtube", "journal", "other"}
 
@@ -168,12 +173,143 @@ def run_ingest(path, use_openai):
     print(f"Done: {n} posts processed, {ill} about illness.")
 
 
+# ---------------------------------------------------------------------------
+# rss: read news feeds and process each new story once
+# ---------------------------------------------------------------------------
+
+NEWS_MAX_AGE_DAYS = 14        # older stories are skipped (the dashboard only shows 14 days)
+
+
+def story_id(feed, story):
+    """A stable id from the feed + the story's guid, so a story is only ever processed once."""
+    return "news-" + hashlib.sha256(f"{feed}|{story['id']}".encode()).hexdigest()[:20]
+
+
+def news_record(result, story, outlet, posted_at, demo):
+    record = make_record(result, "news", posted_at, demo)
+    record["who"] = "other" if result["is_illness"] else "none"     # a news story reports on other people
+    record["outlet"] = outlet[:80]
+    # For illness stories only, keep the public headline and link so the dashboard can list them.
+    # (Social posts never store text; a published headline is public and links back to the source.)
+    if result["is_illness"]:
+        record["headline"] = story["title"][:200]
+        link = story["link"] if re.match(r"https?://", story["link"] or "") else ""
+        record["link"] = link[:500]
+    return record
+
+
+def read_feed(source, use_openai, db, done, cache, demo_shift=None, only_new=True):
+    """Process the new stories in one feed. Returns (stories read, about illness)."""
+    xml_text = newsfeed.fetch(source, cache)
+    if xml_text is None:
+        print(f"  {source}: no change since last check")
+        return 0, 0
+    outlet, stories = newsfeed.parse(xml_text)
+    now = dt.datetime.now(dt.timezone.utc)
+    n = ill = 0
+    for story in stories:
+        sid = story_id(source, story)
+        if only_new and sid in done:
+            continue
+        published = story["published"] or now
+        if demo_shift is not None:
+            published = published + demo_shift                      # practice feed: move the dates up to today
+        if now - published > dt.timedelta(days=NEWS_MAX_AGE_DAYS):
+            continue
+        result = extract(newsfeed.story_text(story), use_openai)
+        posted_at = published.strftime("%Y-%m-%dT%H:%M:%S.000Z")
+        if db is not None:
+            db.collection("media_extracted").document(sid).set(
+                news_record(result, story, outlet, posted_at, demo=demo_shift is not None))
+        done.add(sid)
+        n += 1
+        ill += result["is_illness"]
+        tag = (", ".join(result["symptoms"]) or "no symptoms") + f" @ {result['place']}"
+        if result["pathogen"] != "none":
+            tag += f"  pathogen: {result['pathogen']}"
+        print(f"  {'ILL ' if result['is_illness'] else 'skip'} [{result['method']}] {story['title'][:70]!r} -> {tag}")
+    return n, ill
+
+
+def run_rss(sources, use_openai, every_min=None, dry_run=False, drip_min=None):
+    db = None if dry_run else connect()
+    done = set() if db is None else {ref.id for ref in db.collection("media_extracted").list_documents()}
+    cache = {}
+    web = [s for s in sources if re.match(r"https?://", s)]
+    files = [s for s in sources if s not in web]
+
+    # Practice feed files: example data. All stories are re-dated so the newest one is "now",
+    # and they are processed again on every run (so they never go stale).
+    for path in files:
+        outlet, stories = newsfeed.parse(newsfeed.fetch(path))
+        dates = [s["published"] for s in stories if s["published"]]
+        if drip_min:
+            run_drip(path, stories, outlet, use_openai, db, drip_min)
+            continue
+        shift = (dt.datetime.now(dt.timezone.utc) - max(dates)) if dates else dt.timedelta(0)
+        print(f"Practice feed {path}: {outlet} ({len(stories)} stories, re-dated to end now)")
+        n, ill = read_feed(path, use_openai, db, done, None, demo_shift=shift, only_new=False)
+        print(f"Done: {n} stories, {ill} about illness.")
+
+    if not web:
+        return
+    while True:
+        print(f"Checking {len(web)} feed(s) at {dt.datetime.now().strftime('%H:%M')}")
+        for url in web:
+            try:
+                n, ill = read_feed(url, use_openai, db, done, cache)
+                if n:
+                    print(f"  {url}: {n} new stories, {ill} about illness")
+            except Exception as e:                                   # one broken feed shouldn't stop the others
+                print(f"  ! {url}: {type(e).__name__}: {str(e)[:150]}")
+        if not every_min:
+            return
+        print(f"Next check in {every_min} minutes. Press Ctrl+C to stop.")
+        try:
+            time.sleep(every_min * 60)
+        except KeyboardInterrupt:
+            print("Stopped.")
+            return
+
+
+def run_drip(path, stories, outlet, use_openai, db, drip_min):
+    """Live demo: release the practice stories one at a time, oldest first, each stamped 'now'."""
+    stories = sorted(stories, key=lambda s: s["published"] or dt.datetime.now(dt.timezone.utc))
+    print(f"Dripping {len(stories)} practice stories from {outlet}, one every {drip_min} min. Ctrl+C to stop.")
+    try:
+        for i, story in enumerate(stories, 1):
+            result = extract(newsfeed.story_text(story), use_openai)
+            sid = story_id(path, story)
+            if db is not None:
+                db.collection("media_extracted").document(sid).set(
+                    news_record(result, story, outlet, now_iso(), demo=True))
+            print(f"  {i}/{len(stories)} {'ILL ' if result['is_illness'] else 'skip'} {story['title'][:70]!r}")
+            if i < len(stories):
+                time.sleep(drip_min * 60)
+    except KeyboardInterrupt:
+        print("Stopped.")
+
+
+def option(name, default=None):
+    """The number after a flag, e.g. option('--every') for '--every 30'."""
+    if name in sys.argv:
+        i = sys.argv.index(name)
+        if i + 1 < len(sys.argv):
+            try:
+                return float(sys.argv[i + 1])
+            except ValueError:
+                sys.exit(f"{name} needs a number of minutes, e.g. {name} 30")
+    return default
+
+
 def run_test(text, use_openai):
     print(json.dumps(extract(text, use_openai), indent=2))
 
 
 if __name__ == "__main__":
-    args = [a for a in sys.argv[1:] if not a.startswith("--")]
+    # Words that aren't flags or the numbers after --every / --drip
+    args = [a for i, a in enumerate(sys.argv[1:], 1)
+            if not a.startswith("--") and sys.argv[i - 1] not in ("--every", "--drip")]
     use_openai = "--keywords" not in sys.argv
     if not args:
         print(__doc__); sys.exit(0)
@@ -182,6 +318,9 @@ if __name__ == "__main__":
         run_live(use_openai)
     elif cmd == "ingest" and len(args) > 1:
         run_ingest(args[1], use_openai)
+    elif cmd == "rss" and len(args) > 1:
+        run_rss(args[1:], use_openai, every_min=option("--every"), dry_run="--dry-run" in sys.argv,
+                drip_min=option("--drip"))
     elif cmd == "test" and len(args) > 1:
         run_test(" ".join(args[1:]), use_openai)
     elif cmd == "models":

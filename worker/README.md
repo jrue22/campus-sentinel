@@ -5,9 +5,11 @@ Reads text (demo feed posts, news, school notices, social posts, video transcrip
 | File | What it does |
 | --- | --- |
 | `extract.py` | The extraction: OpenAI with a strict JSON schema, plus a keyword method (fallback and baseline) |
-| `sentinel_worker.py` | Runs it: `live` (demo feed), `ingest` (a CSV of collected posts), `test` (one sentence) |
+| `sentinel_worker.py` | Runs it: `live` (demo feed), `rss` (news feeds), `ingest` (a CSV of collected posts), `test` (one sentence) |
+| `newsfeed.py` | Reads RSS and Atom news feeds (Python standard library only, nothing to install) |
+| `demo-news.xml` | Practice news feed: 12 made-up stories from a made-up outlet, for testing and the demo |
 | `evaluate.py` | Scores an extractor against hand-labeled posts: precision, recall, F1 |
-| `eval_set.csv` | 30 starter labeled posts (written by the developer, so scores on it are optimistic) |
+| `eval_set.csv` | 33 starter labeled posts (written by the developer, so scores on it are optimistic) |
 | `requirements.txt` | Python packages |
 
 ## Setup (about 15 minutes, once)
@@ -32,18 +34,25 @@ Mac / Linux:
 ```
 export GOOGLE_APPLICATION_CREDENTIALS="$PWD/service-account.json"
 export OPENAI_API_KEY="sk-..."
-export OPENAI_MODEL="gpt-4o-mini"          # or the model your ASU program provides
-# export OPENAI_BASE_URL="https://..."     # only if ASU gives you a different endpoint
+export OPENAI_BASE_URL="https://openai.rc.asu.edu/v1"   # ASU's gateway
+export OPENAI_MODEL="gpt-4o-mini"                       # use a name from: python sentinel_worker.py models
 ```
 
 Windows (PowerShell):
 ```
 $env:GOOGLE_APPLICATION_CREDENTIALS = "$PWD\service-account.json"
 $env:OPENAI_API_KEY = "sk-..."
+$env:OPENAI_BASE_URL = "https://openai.rc.asu.edu/v1"
 $env:OPENAI_MODEL = "gpt-4o-mini"
 ```
 
-If your ASU access is through **Azure OpenAI** rather than OpenAI directly, the connection code is slightly different. Ask before the demo and it can be switched.
+Check which model names your key can use, and pick one for `OPENAI_MODEL`:
+
+```
+python sentinel_worker.py models
+```
+
+If the gateway doesn't support strict Structured Outputs, the worker switches to plain JSON mode automatically (it prints a note once); every field is still checked before it's saved.
 
 **4. Publish the new `firestore.rules`** in the Firebase console. They add `media_posts` (demo feed) and `media_extracted` (results).
 
@@ -67,6 +76,24 @@ python evaluate.py --openai     # OpenAI method
 4. If the OpenAI connection fails, the worker switches to the keyword method on its own and prints a warning. Add `--keywords` to use it from the start.
 
 Afterwards, clear the demo: Firebase console → Firestore → `media_posts` and `media_extracted` → **⋮ → Delete collection**.
+
+## News feeds (RSS)
+
+An RSS feed is an XML file a news site keeps updated with its latest stories. Each story is an `<item>` with a `<title>`, `<link>`, `<description>` (short summary), `<pubDate>` and `<guid>` (unique id). The worker reads the headline and summary (plus the start of the article if the summary is short), runs the same extractor on it, and saves the result with `source: "news"`.
+
+```
+py sentinel_worker.py rss demo-news.xml --dry-run       # practice feed, print only (no Firebase needed)
+py sentinel_worker.py rss demo-news.xml                 # practice feed, saved as example data
+py sentinel_worker.py rss demo-news.xml --drip 2        # live demo: one practice story every 2 minutes
+py sentinel_worker.py rss https://www.abc15.com/index.rss --every 30    # a real feed, checked every 30 minutes
+```
+
+- You can list several feed addresses after `rss`. Each story is processed **once** (its id comes from the feed's `<guid>`), and stories older than 14 days are skipped.
+- `--every 30` re-checks every 30 minutes and asks the site "anything new since last time?" (ETag / Last-Modified), so an unchanged feed costs almost nothing. Please don't check more often than every 15 minutes.
+- The practice feed is marked as example data, so **Include example data** on the dashboard hides it. Its dates are moved up so the newest story is "now".
+- For illness stories only, the **public headline and link** are saved, so the dashboard can list them under **Social & news → News headlines**. The article text is never stored.
+- News doesn't count toward the social-media spike rule (one story can stand for many people, and outlets repeat each other's stories). It counts as its own source in **Where the signals agree**.
+- Most news names a city, not a campus, so most stories show "Place not named". That is the place check working as intended.
 
 ## Adding collected data
 
