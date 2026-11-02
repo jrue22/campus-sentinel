@@ -1,0 +1,152 @@
+<!doctype html>
+<html lang="en">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1, viewport-fit=cover">
+<title>Sentinel Demo Feed</title>
+<meta name="robots" content="noindex">
+<meta name="theme-color" content="#8C1D40">
+<link rel="icon" type="image/png" href="icon-192.png">
+<!--
+  DEMO FEED - a stand-in for a social platform, used in class.
+  Classmates post short messages here; the NLP worker (worker/sentinel_worker.py live)
+  reads each new post within seconds, extracts symptoms and place, and the dashboard
+  turns them into media signals. Nothing here is posted to a real social network.
+-->
+<style>
+  :root {
+    --bg: #F6F4F5; --surface: #FFFFFF; --surface-2: #EFEAEC; --ink: #1F1A1C; --ink-2: #5E5459; --line: #DDD5D9;
+    --accent: #8C1D40; --accent-ink: #FFFFFF; --ok: #2F7A4F; --ok-bg: #E4F3EA; --watch: #8A5D00; --watch-bg: #FFF3D1;
+  }
+  @media (prefers-color-scheme: dark) {
+    :root { color-scheme: dark; --bg: #151113; --surface: #1F1A1C; --surface-2: #2A2326; --ink: #F2EDEF; --ink-2: #B5ABB0; --line: #3B3337;
+      --accent: #E57A99; --accent-ink: #1A0A10; --ok: #71CF99; --ok-bg: #173226; --watch: #F2C14E; --watch-bg: #372D12; }
+  }
+  * { box-sizing: border-box; }
+  [hidden] { display: none !important; }
+  body { margin: 0; background: var(--bg); color: var(--ink); font: 15px/1.5 system-ui, -apple-system, "Segoe UI", sans-serif;
+    padding: env(safe-area-inset-top, 0px) 16px 32px; }
+  main { max-width: 560px; margin: 0 auto; display: grid; gap: 14px; padding-top: 20px; }
+  h1 { margin: 0; font-size: 1.4rem; }
+  .note { font-size: .85rem; color: var(--ink-2); }
+  .card { background: var(--surface); border: 1px solid var(--line); border-radius: 12px; padding: 14px; display: grid; gap: 10px; }
+  textarea { width: 100%; min-height: 88px; resize: vertical; font: inherit; color: inherit; background: var(--bg);
+    border: 1px solid var(--line); border-radius: 8px; padding: 10px; }
+  .row { display: flex; justify-content: space-between; align-items: center; gap: 10px; flex-wrap: wrap; }
+  button { font: inherit; font-weight: 600; background: var(--accent); color: var(--accent-ink); border: 0; border-radius: 999px; padding: 10px 20px; cursor: pointer; min-height: 44px; }
+  button[disabled] { opacity: .5; cursor: not-allowed; }
+  .count { font-size: .8rem; color: var(--ink-2); font-variant-numeric: tabular-nums; }
+  .post { border-bottom: 1px solid var(--line); padding: 12px 0; display: grid; gap: 6px; }
+  .post:last-child { border-bottom: 0; }
+  .meta { font-size: .78rem; color: var(--ink-2); }
+  .text { white-space: pre-wrap; word-wrap: break-word; }
+  .tag { font-size: .78rem; display: inline-flex; gap: 6px; align-items: center; padding: 3px 10px; border-radius: 999px; width: fit-content; }
+  .tag.ill { background: var(--watch-bg); color: var(--watch); }
+  .tag.no { background: var(--surface-2); color: var(--ink-2); }
+  .tag.wait { background: var(--surface-2); color: var(--ink-2); font-style: italic; }
+  .err { color: #B8330C; font-size: .85rem; }
+</style>
+</head>
+<body>
+<main>
+  <h1>Sentinel demo feed</h1>
+  <p class="note">A practice social feed for the BMI 461 demo. Write a short post the way you would on social media. The NLP system reads every post and tags what it finds. Posts are anonymous but visible to everyone here, so don't include names or anything personal.</p>
+
+  <form class="card" id="compose" novalidate>
+    <label for="text" class="note">What's going on?</label>
+    <textarea id="text" maxlength="280" placeholder="e.g. half my floor at hassy has been throwing up since last night"></textarea>
+    <div class="row">
+      <span class="count" id="count">0 / 280</span>
+      <button type="submit" id="post">Post</button>
+    </div>
+    <p class="err" id="err" hidden></p>
+  </form>
+
+  <section class="card" aria-live="polite">
+    <div class="row"><strong>Latest posts</strong><span class="count" id="status">Connecting…</span></div>
+    <div id="feed"><p class="note">No posts yet.</p></div>
+  </section>
+  <p class="note"><a href="./#dashboard" style="color:var(--accent)">Open the dashboard</a></p>
+</main>
+
+<script src="https://www.gstatic.com/firebasejs/10.12.2/firebase-app-compat.js"></script>
+<script src="https://www.gstatic.com/firebasejs/10.12.2/firebase-firestore-compat.js"></script>
+<script src="firebase-config.js?v=5"></script>
+<script>
+const $ = id => document.getElementById(id);
+const esc = v => String(v ?? "").replace(/[&<>"']/g, c => ({ "&": "&amp;", "<": "&lt;", ">": "&gt;", '"': "&quot;", "'": "&#39;" }[c]));
+const COOLDOWN_MS = 15000;                       // one post per 15 seconds per phone, to keep the demo readable
+const PLACE_NAMES = {
+  "tempe-barrett": "Barrett", "tempe-hassayampa": "Hassayampa", "tempe-manzanita": "Manzanita", "tempe-tooker": "Tooker House",
+  "tempe-vds": "Vista del Sol", "tempe-sonora": "Sonora", "dtphx-taylor": "Taylor Place", "poly-century": "Century Hall",
+  "west-casadeoro": "Casa de Oro", "campus-tempe": "Tempe campus", "campus-downtown": "Downtown Phoenix",
+  "campus-poly": "Polytechnic", "campus-west": "West Valley",
+};
+const SYMPTOM_NAMES = { cough: "cough", sorethroat: "sore throat", nose: "runny nose", sob: "short of breath", smell: "loss of taste/smell",
+  ear: "ear pain", sinus: "sinus pressure", fever: "fever", chills: "chills", aches: "body aches", fatigue: "fatigue", headache: "headache",
+  glands: "swollen glands", stiffneck: "stiff neck", nausea: "nausea", vomiting: "vomiting", diarrhea: "diarrhea", blood: "blood in stool",
+  cramps: "stomach cramps", rash: "rash", itchy: "itchy skin", eyes: "red eyes" };
+
+let db = null, posts = [], tags = {};
+
+function timeAgo(iso) {
+  const s = Math.round((Date.now() - new Date(iso).getTime()) / 1000);
+  if (!Number.isFinite(s)) return "";
+  return s < 60 ? "just now" : s < 3600 ? Math.round(s / 60) + " min ago" : Math.round(s / 3600) + " h ago";
+}
+
+function tagHtml(id) {
+  const t = tags[id];
+  if (!t) return `<span class="tag wait">Analyzing…</span>`;
+  if (!t.isIllness) return `<span class="tag no">Not about illness</span>`;
+  const sym = (t.symptoms || []).map(s => SYMPTOM_NAMES[s] || s).join(", ") || "illness mentioned";
+  const where = PLACE_NAMES[t.place] ? ` · ${PLACE_NAMES[t.place]}` : "";
+  return `<span class="tag ill">Detected: ${esc(sym)}${esc(where)}</span>`;
+}
+
+function render() {
+  $("feed").innerHTML = posts.length
+    ? posts.map(p => `<div class="post"><span class="meta">${esc(timeAgo(p.createdAt))}</span><div class="text">${esc(p.text)}</div>${tagHtml(p.id)}</div>`).join("")
+    : `<p class="note">No posts yet. Be the first.</p>`;
+}
+
+(function start() {
+  const c = window.FIREBASE_CONFIG;
+  if (!window.firebase || !c || String(c.projectId).startsWith("PASTE")) { $("status").textContent = "Not connected (check firebase-config.js)"; return; }
+  firebase.initializeApp(c);
+  db = firebase.firestore();
+  db.collection("media_posts").orderBy("createdAt", "desc").limit(30).onSnapshot(
+    snap => { posts = snap.docs.map(d => ({ id: d.id, ...d.data() })); $("status").textContent = "Live"; render(); },
+    err => { $("status").textContent = "Disconnected (" + err.code + ")"; });
+  // Tags written by the NLP worker, newest first
+  db.collection("media_extracted").where("source", "==", "demo-feed").onSnapshot(
+    snap => { snap.docs.forEach(d => { tags[d.id] = d.data(); }); render(); },
+    () => {});
+  setInterval(render, 30000);                    // refresh "x min ago"
+})();
+
+$("text").addEventListener("input", () => { $("count").textContent = $("text").value.length + " / 280"; });
+
+$("compose").addEventListener("submit", async e => {
+  e.preventDefault();
+  const text = $("text").value.trim();
+  $("err").hidden = true;
+  if (!text) return;
+  if (!db) { $("err").hidden = false; $("err").textContent = "Not connected to the database."; return; }
+  let last = 0; try { last = Number(localStorage.getItem("sentinel-feed-last")) || 0; } catch (x) {}
+  if (Date.now() - last < COOLDOWN_MS) {
+    $("err").hidden = false; $("err").textContent = "Wait a few seconds before posting again."; return;
+  }
+  $("post").disabled = true;
+  try {
+    await db.collection("media_posts").add({ text, createdAt: new Date().toISOString(), demo: true });
+    try { localStorage.setItem("sentinel-feed-last", String(Date.now())); } catch (x) {}
+    $("text").value = ""; $("count").textContent = "0 / 280";
+  } catch (err) {
+    $("err").hidden = false;
+    $("err").textContent = err.code === "permission-denied" ? "The database rejected the post. Check that the new firestore.rules are published." : "Your post didn't send. Try again.";
+  } finally { $("post").disabled = false; }
+});
+</script>
+</body>
+</html>

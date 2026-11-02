@@ -366,6 +366,13 @@
           <p class="muted">Point your phone camera at the code. New reports appear on this dashboard within seconds.</p>
           <span class="url" id="qrUrl"></span>
         </div>
+        <div class="qr" id="qrFeed" aria-label="QR code to open the demo social feed"></div>
+        <div class="prose" style="gap:6px">
+          <span class="eyebrow">Live demo</span>
+          <h3>Scan to post on the demo feed</h3>
+          <p class="muted">Write a short post like you would on social media. The NLP system tags it within seconds.</p>
+          <span class="url" id="qrFeedUrl"></span>
+        </div>
       </div>
 
       <div class="panel-head">
@@ -404,6 +411,18 @@
           <span><svg width="12" height="12" aria-hidden="true"><path d="M6 1.5l5 9H1z" fill="var(--ink-2)"/></svg>First report</span>
         </div>
         <div class="table-box" id="wwLead"></div>
+      </div>
+
+      <div class="panel">
+        <div class="panel-head">
+          <h3>Social &amp; media signals <span class="pill alert-p" id="mediaSpike" hidden>Spike</span></h3>
+          <span class="eyebrow">NLP on posts, news and notices</span>
+        </div>
+        <p class="muted" id="mediaStatus">Waiting for data…</p>
+        <span class="eyebrow">Illness posts per 10 minutes · last 2 hours</span>
+        <div class="chart-box small" id="mediaChart"></div>
+        <span class="eyebrow">Last 24 hours by place</span>
+        <div class="table-box" id="mediaTable"></div>
       </div>
 
       <details class="panel" id="genomics">
@@ -1125,6 +1144,91 @@ function biggestLineageChange(series) {
 
 
 /* =====================================================================
+   3f. MEDIA SIGNALS — posts, news and notices read by the NLP worker
+   The worker (worker/sentinel_worker.py) only extracts: is it about
+   illness, which symptoms, which place, when. Here each illness post is
+   run through the SAME classify() used for survey reports, so all
+   sources get one syndrome and pathogen labeling.
+   ===================================================================== */
+
+const MEDIA_SOURCES = { "demo-feed": "Demo feed", news: "News", school: "School notices", reddit: "Reddit",
+  x: "X", tiktok: "TikTok", youtube: "YouTube", journal: "Journals", other: "Other" };
+const MEDIA_BIN_MIN = 10;          // live chart: 10-minute bins
+const MEDIA_BINS = 12;             // ... over the last 2 hours
+const MEDIA_SPIKE_MIN = 3;         // a spike needs at least 3 illness posts in the last 30 minutes
+const MEDIA_SPIKE_RATIO = 3;       // ... and 3x the rate of the 90 minutes before
+
+function mediaPlaceName(id) {
+  if (residenceName[id]) return residenceName[id];
+  const campus = { "campus-tempe": "tempe", "campus-downtown": "downtown", "campus-poly": "poly", "campus-west": "west" }[id];
+  return campus ? campusName[campus] + " campus" : "Place not named";
+}
+
+// A disease named in the text sets the pathogen type directly (and the syndrome when no symptoms are given).
+const MEDIA_PATHOGENS = {
+  norovirus: ["gi", "viral"], rotavirus: ["gi", "viral"], influenza: ["ili", "viral"], covid: ["ili", "viral"],
+  rsv: ["resp", "viral"], strep: ["ili", "bacterial"], salmonella: ["gi", "bacterial"],
+  cryptosporidium: ["gi", "parasitic"], measles: ["skin", "viral"], mono: ["ili", "viral"],
+};
+
+// One media record -> the same shape as a survey report, then classify() it.
+function classifyMedia(m) {
+  const named = MEDIA_PATHOGENS[m.pathogen];
+  const hasSymptoms = (m.symptoms || []).some(s => knownSymptoms.has(s));
+  if (named && !hasSymptoms) return { syndrome: named[0], category: named[1], confidence: "named", urgent: false };
+  const c = classifyMediaSymptoms(m);
+  return named ? { ...c, category: named[1] } : c;
+}
+function classifyMediaSymptoms(m) {
+  const posted = new Date(m.postedAt);
+  const onset = localDate(new Date(posted.getTime() - (Number.isInteger(m.onsetDaysAgo) ? m.onsetDaysAgo : 0) * 864e5)) || todayStr();
+  const pseudo = { symptoms: (m.symptoms || []).filter(s => knownSymptoms.has(s)), onset, submittedAt: m.postedAt,
+    maxTempF: null, severity: "moderate", contacts: m.who === "close_contact" ? "yes" : "unsure", sharedMeal: false, travel: false };
+  return classify(pseudo);
+}
+
+function visibleMedia() {
+  return (state.media || [])
+    .filter(m => m && typeof m.postedAt === "string" && !isNaN(new Date(m.postedAt)) && Array.isArray(m.symptoms || []))
+    .filter(m => state.showDemo || !m.demo || m.source === "demo-feed")    // the live demo feed is always shown
+    .map(m => ({ ...m, c: m.isIllness ? classifyMedia(m) : null }));
+}
+
+function mediaSummary(media, clusters, wwSignals) {
+  const now = Date.now(), ill = media.filter(m => m.isIllness);
+  const ago = m => (now - new Date(m.postedAt).getTime()) / 60000;            // minutes
+  // Live bins (last 2 hours), stacked by syndrome
+  const bins = Array.from({ length: MEDIA_BINS }, () => ({}));
+  ill.forEach(m => { const i = MEDIA_BINS - 1 - Math.floor(ago(m) / MEDIA_BIN_MIN);
+    if (i >= 0 && i < MEDIA_BINS) bins[i][m.c.syndrome] = (bins[i][m.c.syndrome] || 0) + 1; });
+  const last30 = ill.filter(m => ago(m) < 30).length;
+  const prev90 = ill.filter(m => ago(m) >= 30 && ago(m) < 120).length;
+  const spike = last30 >= MEDIA_SPIKE_MIN && last30 >= MEDIA_SPIKE_RATIO * (prev90 / 3);
+
+  // Last 24 hours by place + syndrome, with agreement marks for the other two signals
+  const groups = {};
+  ill.filter(m => ago(m) < 24 * 60).forEach(m => {
+    const k = m.place + "|" + m.c.syndrome;
+    const g = groups[k] = groups[k] || { place: m.place, campus: m.campus, syndrome: m.c.syndrome, n: 0, sources: {}, cats: {} };
+    g.n++; g.sources[m.source] = (g.sources[m.source] || 0) + 1; g.cats[m.c.category] = (g.cats[m.c.category] || 0) + 1;
+  });
+  const rows = Object.values(groups).map(g => {
+    const reports = clusters.some(c => c.syndrome === g.syndrome &&
+      (c.residenceId ? (c.residenceId === g.place || (g.place.startsWith("campus-") && residenceCampus[c.residenceId] === g.campus)) : c.campusId === g.campus));
+    const wastewater = wwSignals.some(s => s.level && WW_TARGET[s.target].syndromes.includes(g.syndrome) && WW_SITE[s.site].campus === g.campus);
+    // Most common pathogen type, preferring a determined one: many posts name one symptom
+    // ("threw up"), which alone can't separate viral from bacterial.
+    const category = Object.keys(g.cats).sort((a, b) =>
+      (a === "undetermined") - (b === "undetermined") || g.cats[b] - g.cats[a])[0];
+    return { ...g, category, reports, wastewater };
+  }).sort((a, b) => b.n - a.n);
+  const bySource = countBy(media.filter(m => ago(m) < 24 * 60), m => m.source);
+  return { bins, last30, prev90, spike, rows, read24: media.filter(m => ago(m) < 24 * 60).length,
+    ill24: ill.filter(m => ago(m) < 24 * 60).length, bySource };
+}
+
+
+/* =====================================================================
    4. DATA STORAGE — Firebase Cloud Firestore
    Each report is one document in the "reports" collection.
    onSnapshot() keeps a live connection open: whenever ANY device adds a
@@ -1133,7 +1237,7 @@ function biggestLineageChange(series) {
    mode and keeps reports in memory for this visit only.
    ===================================================================== */
 
-const state = { reports: [], wastewater: [], lineages: [], lineageSite: null, db: null, showDemo: true, lastUpdate: null };
+const state = { reports: [], wastewater: [], lineages: [], lineageSite: null, media: [], db: null, showDemo: true, lastUpdate: null };
 
 // Find the project settings. Accepts either window.FIREBASE_CONFIG (our file)
 // or "const firebaseConfig = {...}" pasted straight from the Firebase console.
@@ -1163,6 +1267,7 @@ function connectDatabase() {
   state.db = firebase.firestore();
   subscribeWastewater();
   subscribeLineages();
+  subscribeMedia();
 
   // Subscribe ONCE. The callback runs now and again whenever anyone submits.
   state.db.collection("reports").onSnapshot(
@@ -1191,6 +1296,16 @@ function subscribeWastewater() {
   );
 }
 
+// NLP results from the worker, last 14 days.
+function subscribeMedia() {
+  const since = new Date(Date.now() - 14 * 864e5).toISOString();
+  state.db.collection("media_extracted").where("postedAt", ">=", since).onSnapshot(
+    snap => { state.media = snap.docs.map(d => ({ id: d.id, ...d.data() })); renderDashboard(); },
+    err => showBanner(err.code === "permission-denied"
+      ? "Media signals couldn't be read. Publish the updated firestore.rules (see README)."
+      : "Media updates stopped (" + err.code + ")."));
+}
+
 // SARS-CoV-2 lineage samples from sequencing, last 70 days.
 function subscribeLineages() {
   state.db.collection("lineages").where("date", ">=", addDays(todayStr(), -70)).onSnapshot(
@@ -1212,10 +1327,15 @@ async function saveReport(report) {
 
 // QR code pointing at this page's survey tab, for live demos.
 function renderQR() {
-  const url = location.href.split("#")[0] + "#report";
+  const base = location.href.split("#")[0];
+  const url = base + "#report";
+  const feed = base.replace(/index\.html$/, "").replace(/\/?$/, "/") + "feed.html";
   $("qrUrl").textContent = url;
-  if (!window.QRCode) { $("qrCode").hidden = true; return; }
-  new QRCode($("qrCode"), { text: url, width: 280, height: 280, colorDark: "#1F1A1C", colorLight: "#FFFFFF", correctLevel: QRCode.CorrectLevel.M });
+  $("qrFeedUrl").textContent = feed;
+  if (!window.QRCode) { $("qrCode").hidden = $("qrFeed").hidden = true; return; }
+  const opts = { width: 280, height: 280, colorDark: "#1F1A1C", colorLight: "#FFFFFF", correctLevel: QRCode.CorrectLevel.M };
+  new QRCode($("qrCode"), { ...opts, text: url });
+  new QRCode($("qrFeed"), { ...opts, text: feed });
 }
 
 
@@ -1400,7 +1520,9 @@ function renderDashboard() {
   renderRecent(reports);
   renderLeadTimes(wwSignals, clusters);
   renderGenomics();
-  renderGlance({ week, prev, clusters, wwSignals });
+  const media = mediaSummary(visibleMedia(), clusters, wwSignals);
+  renderMedia(media);
+  renderGlance({ week, prev, clusters, wwSignals, media });
 }
 
 function kpi(label, num, sub) {
@@ -1675,7 +1797,7 @@ function renderGenomics() {
 
 // "At a glance": plain sentences built by rules from the numbers on the dashboard.
 // Every sentence comes from a value already shown above, so each one can be checked.
-function renderGlance({ week, prev, clusters, wwSignals }) {
+function renderGlance({ week, prev, clusters, wwSignals, media }) {
   const parts = [];
   const plural = (n, word) => `${n} ${word}${n === 1 ? "" : "s"}`;
   const plain = { ili: "flu-like illness", resp: "respiratory illness", gi: "stomach illness",
@@ -1720,11 +1842,61 @@ function renderGlance({ week, prev, clusters, wwSignals }) {
   });
   if (shift) parts.push(`SARS-CoV-2 lineage <b>${esc(shift.lineage)}</b> grew from ${Math.round(100 * shift.from)}% to ${Math.round(100 * shift.to)}% at ${esc(WW_SITE[shift.site].name)} over the last 4 weeks.`);
 
-  // 6. Closing line
+  // 6. Social and media posts
+  const topMedia = media && media.rows[0];
+  if (media && media.spike) parts.push(`<b>Social media spike:</b> ${media.last30} illness posts in the last 30 minutes.`);
+  if (topMedia && topMedia.n >= 3) parts.push(`${topMedia.n} posts in the last 24 hours describe ${plain[topMedia.syndrome]} at ${esc(mediaPlaceName(topMedia.place))}` +
+    (topMedia.reports || topMedia.wastewater ? `, matching ${[topMedia.reports && "symptom reports", topMedia.wastewater && "wastewater"].filter(Boolean).join(" and ")}.` : "."));
+
+  // 7. Closing line
   parts.push(!clusters.length && !wwSignals.some(s => s.level)
     ? "All quiet: no symptom clusters and no wastewater rises."
     : "Everything else is near normal.");
   $("glance").innerHTML = parts.join(" ");
+}
+
+// Media panel: live line, a 2-hour stacked bar chart by syndrome, and a 24-hour table by place.
+function renderMedia(summary) {
+  const { bins, last30, spike, rows, read24, ill24, bySource } = summary;
+  $("mediaSpike").hidden = !spike;
+  const sources = Object.keys(bySource).map(k => `${MEDIA_SOURCES[k] || k} ${bySource[k]}`).join(" · ");
+  $("mediaStatus").textContent = read24
+    ? `${ill24} of ${read24} posts in the last 24 hours describe illness; ${last30} in the last 30 minutes. Sources: ${sources}.`
+    : "No posts processed yet. Start the NLP worker and open the demo feed (feed.html).";
+
+  // 2-hour live chart
+  const W = 640, H = 170, L = 34, R = 10, T = 10, B = 26, slot = (W - L - R) / MEDIA_BINS, bw = slot * 0.7;
+  const totals = bins.map(b => Object.values(b).reduce((a, c) => a + c, 0));
+  const step = Math.max(1, Math.ceil(Math.max(4, ...totals) / 4)), yMax = step * 4;
+  const y = v => T + (H - T - B) * (1 - v / yMax);
+  let svg = `<svg viewBox="0 0 ${W} ${H}" role="img" aria-label="Illness posts per 10 minutes, last 2 hours">`;
+  for (let v = 0; v <= yMax; v += step) {
+    svg += `<line x1="${L}" x2="${W - R}" y1="${y(v)}" y2="${y(v)}" stroke="var(--line)"/>`;
+    svg += `<text x="${L - 6}" y="${y(v) + 4}" text-anchor="end" font-size="11" font-family="IBM Plex Mono, monospace" fill="var(--ink-2)">${v}</text>`;
+  }
+  bins.forEach((b, i) => {
+    const x = L + slot * i + (slot - bw) / 2;
+    let acc = 0;
+    SYNDROMES.forEach(s => {
+      const n = b[s.id] || 0; if (!n) return;
+      svg += `<rect x="${x.toFixed(1)}" y="${y(acc + n).toFixed(1)}" width="${bw.toFixed(1)}" height="${Math.max(0, y(acc) - y(acc + n) - 2).toFixed(1)}" rx="2" fill="${s.color}"><title>${n} ${s.name}</title></rect>`;
+      acc += n;
+    });
+    const label = i === MEDIA_BINS - 1 ? "now" : i === 0 ? "−2 h" : i === MEDIA_BINS / 2 ? "−1 h" : "";
+    if (label) svg += `<text x="${(x + bw / 2).toFixed(1)}" y="${H - 8}" text-anchor="middle" font-size="11" font-family="IBM Plex Mono, monospace" fill="var(--ink-2)">${label}</text>`;
+  });
+  $("mediaChart").innerHTML = svg + `</svg>`;
+
+  // 24-hour table
+  const mark = (on, what) => on ? `<span class="pill ok-p" title="${what} agrees">yes</span>` : `<span class="muted">—</span>`;
+  $("mediaTable").innerHTML = rows.length
+    ? `<table><thead><tr><th>Place</th><th>Syndrome</th><th style="text-align:center">Posts</th><th>Likely type</th><th>Sources</th><th>Symptom reports</th><th>Wastewater</th></tr></thead><tbody>` +
+      rows.slice(0, 8).map(r => `<tr><td>${esc(mediaPlaceName(r.place))}</td>
+        <td><span class="syn"><i class="sw" style="background:${syndromeById[r.syndrome].color}"></i>${syndromeById[r.syndrome].name}</span></td>
+        <td class="n">${r.n}</td><td>${r.category === "undetermined" ? "Undetermined" : categoryName[r.category]}</td>
+        <td class="muted">${Object.keys(r.sources).map(k => esc(MEDIA_SOURCES[k] || k)).join(", ")}</td>
+        <td>${mark(r.reports, "A symptom cluster")}</td><td>${mark(r.wastewater, "A wastewater signal")}</td></tr>`).join("") + `</tbody></table>`
+    : `<p class="muted">No illness posts in the last 24 hours.</p>`;
 }
 
 function renderRules() {
@@ -1752,6 +1924,7 @@ function showScreen(name) {
 }
 document.querySelectorAll("[data-tab]").forEach(b => b.addEventListener("click", () => showScreen(b.dataset.tab)));
 $("showDemo").addEventListener("change", e => { state.showDemo = e.target.checked; renderDashboard(); });
+setInterval(() => { if (!$("screen-dashboard").hidden) renderDashboard(); }, 60000);   // keep the live chart's time window moving
 $("lineageSite").addEventListener("change", e => { state.lineageSite = e.target.value; renderGenomics(); });
 
 const wk = mmwrWeek(todayStr());

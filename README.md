@@ -14,6 +14,8 @@ This project and associated documentation was generated with Anthropic’s Claud
 | `firebase-config.js` | Your Firebase project settings (you fill this in) |
 | `firestore.rules` | Database security rules (paste into the Firebase console) |
 | `seed.html` | Loads 38 example reports for demos |
+| `feed.html` | Demo social feed classmates post to during the live demo |
+| `worker/` | Python NLP worker (see `worker/README.md`) |
 | `wastewater-config.js` | Wastewater targets (viruses, bacteria) and sampling sites with map coordinates. Edit to match your facility |
 | `wastewater-import.html` | Signed-in uploaders add wastewater results and SARS-CoV-2 lineage results (CSV), or example data |
 | `manifest.webmanifest`, `icon-*.png` | Make "Add to Home Screen" work like an app |
@@ -80,6 +82,10 @@ Anyone can submit a symptom report, but only listed accounts can add wastewater 
 5. Each site and target needs at least 2 samples this week and 2 in the prior four weeks before it shows up.
 
 Wastewater data is public to read: do not upload anything confidential.
+
+## Social & media signals (NLP)
+
+The dashboard's **Social & media signals** panel shows illness posts found by natural language processing in a demo social feed (`feed.html`), news, school notices and other sources. A Python worker in the `worker/` folder reads each post with OpenAI (or a keyword method as a fallback), extracts symptoms, place, timing and any named disease, and writes only those fields to Firestore (`media_extracted`). The dashboard labels them with the same syndrome and pathogen rules as survey reports, and marks when symptom reports and wastewater agree. Setup and commands: `worker/README.md`.
 
 ## Running the live demo
 

@@ -1,0 +1,31 @@
+text,is_illness,symptoms,place
+"ugh threw up all night, half my floor in hassy is sick too",1,vomiting,tempe-hassayampa
+"this new kendrick track is SICK",0,,unknown
+"anyone else at manzy have the runs?? something in the dining hall i swear",1,diarrhea,tempe-manzanita
+"flu shots at the MU today 10-2, free with student ID",0,,campus-tempe
+"burning up and my throat is killing me, skipping class",1,fever;sorethroat,unknown
+"not sick, just tired from midterms",0,,unknown
+"my roommate has been puking since yesterday, vds is cursed",1,vomiting,tempe-vds
+"i'm dead lmao this professor",0,,unknown
+"coughing nonstop and so tired, taylor place has a bug going around",1,cough;fatigue,dtphx-taylor
+"no fever but my head is pounding and everything hurts",1,aches;headache,unknown
+"sick of this heat honestly",0,,unknown
+"half of century hall is out with fever and sore throat",1,fever;sorethroat,poly-century
+"got food poisoning from the late night spot near downtown",1,,campus-downtown
+"stuffy nose and sneezing, allergies or a cold? tooker people help",1,nose,tempe-tooker
+"health fair at polytechnic thursday, come get free stuff",0,,campus-poly
+"can't taste anything since monday, getting a covid test",1,smell,unknown
+"woke up with a rash and itchy skin after the gym",1,itchy;rash,unknown
+"my stomach hurts and i feel nauseous, barrett dining hall again??",1,cramps;nausea,tempe-barrett
+"that trick shot was sick",0,,unknown
+"pink eye going around my class at west valley",1,eyes,campus-west
+"stiff neck and fever and the worst headache of my life",1,fever;headache;stiffneck,unknown
+"vaccine clinic hours extended this week",0,,unknown
+"everyone in my suite at sonora is coughing",1,cough,tempe-sonora
+"I had the flu last year and it was awful",0,,unknown
+"feeling like death, chills and body aches, casa de oro",1,aches;chills,west-casadeoro
+"dying laughing at this video",0,,unknown
+"the runs and cramps since last night, tempe campus bathroom tour",1,cramps;diarrhea,campus-tempe
+"short of breath walking up stairs today, kinda scary",1,sob,unknown
+"great game tonight, the defense was sick",0,,unknown
+"my friend at hassayampa has a fever of 102",1,fever,tempe-hassayampa

@@ -73,6 +73,28 @@ service cloud.firestore {
       allow update, delete: if false;
     }
 
+    // Demo feed posts: anyone in class can add a short, anonymous post. Nobody can edit or delete
+    // them from the website (the owner can clear them in the Firebase console after the demo).
+    function validPost(d) {
+      return d.keys().hasOnly(['text', 'createdAt', 'demo'])
+        && d.text is string && d.text.size() >= 1 && d.text.size() <= 280
+        && d.createdAt is string && d.createdAt.size() <= 40
+        && d.demo == true;
+    }
+
+    match /media_posts/{postId} {
+      allow read: if true;
+      allow create: if validPost(request.resource.data);
+      allow update, delete: if false;
+    }
+
+    // NLP results: written only by the worker, which uses the Firebase Admin SDK
+    // (the Admin SDK bypasses these rules). Browsers can only read them.
+    match /media_extracted/{postId} {
+      allow read: if true;
+      allow write: if false;
+    }
+
     match /wastewater/{sampleId} {
       allow read: if true;
       allow create: if isLabUploader() && validWastewater(request.resource.data);
