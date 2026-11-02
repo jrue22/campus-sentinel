@@ -1,0 +1,29 @@
+text,health_topic,is_illness,pathogen,place
+"Norovirus suspected after dozens fall ill at ASU's Hassayampa residence hall. Students began vomiting and having diarrhea late last week.",infectious_disease,1,norovirus,tempe-hassayampa
+"Free flu shot clinics open at Valley libraries this week. No appointment needed.",infectious_disease,0,influenza,unknown
+"Wave of fevers and coughs reported at Gordon Commons in downtown Phoenix. Several students tested positive for the flu.",infectious_disease,1,influenza,dtphx-taylor
+"Light rail extension opens new stops in Tempe. Trains will run every 12 minutes.",not_health,0,none,unknown
+"Salmonella cases tied to food truck near ASU West Valley campus. Several people had diarrhea and fever.",infectious_disease,1,salmonella,campus-west
+"Booker's sick fadeaway seals Suns comeback win",not_health,0,none,unknown
+"Mono going around Century Hall, Polytechnic students say. The campus clinic confirmed a handful of cases.",infectious_disease,1,mono,poly-century
+"Dust storm warning for the Valley on Tuesday afternoon",not_health,0,none,unknown
+"Strep throat cases reported at a Mesa elementary school. Parents told to watch for sore throat and fever.",infectious_disease,1,strep,unknown
+"Last year's flu season was the worst in a decade, report finds. Hospital visits peaked in January.",infectious_disease,0,influenza,unknown
+"Polytechnic campus hosts student drone competition",not_health,0,none,campus-poly
+"Possible measles exposure at a Phoenix shopping center, county says. Anyone who develops a fever and rash should call a doctor.",infectious_disease,1,measles,unknown
+"ER visits for gambling disorder climb as sports betting grows across Arizona",other_health,0,none,unknown
+"Heat-related deaths in Maricopa County top 400 for the year",other_health,0,none,unknown
+"Valley fever cases climbing in Maricopa County after monsoon dust, health officials say",infectious_disease,1,valley_fever,unknown
+"12 sickened after church potluck in Mesa; county investigating the cause",infectious_disease,1,none,unknown
+"Mosquitoes test positive for West Nile virus in Gilbert; no human cases yet",infectious_disease,0,west_nile,unknown
+"Whooping cough cases rise at a Chandler high school, district warns families",infectious_disease,1,pertussis,unknown
+"E. coli outbreak linked to bagged lettuce sickens 30 people in 8 states; recall announced",infectious_disease,1,ecoli,unknown
+"Hepatitis A exposure possible for diners at a Tucson restaurant last weekend",infectious_disease,1,hepatitis_a,unknown
+"Study finds this year's flu vaccine cuts hospital visits by half",infectious_disease,0,influenza,unknown
+"County gets federal grant to expand public health lab testing",other_health,0,none,unknown
+"Fentanyl overdoses down 20 percent in Phoenix, police say",other_health,0,none,unknown
+"Hantavirus case confirmed in Navajo County resident, first of the year",infectious_disease,1,hantavirus,unknown
+"ASU football falls to Utah in overtime thriller",not_health,0,none,unknown
+"COVID-19 hospitalizations tick up in Arizona as new variant spreads",infectious_disease,1,covid,unknown
+"Banner Health opens new cancer center in Tempe",other_health,0,none,unknown
+"Several Tooker House residents hospitalized with suspected food poisoning",infectious_disease,1,none,tempe-tooker

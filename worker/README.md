@@ -6,6 +6,8 @@ Reads text (demo feed posts, news, school notices, social posts, video transcrip
 | --- | --- |
 | `extract.py` | The extraction: OpenAI with a strict JSON schema, plus a keyword method (fallback and baseline) |
 | `sentinel_worker.py` | Runs it: `live` (demo feed), `rss` (news feeds), `ingest` (a CSV of collected posts), `test` (one sentence) |
+| `news_extract.py` | The news extractor: screens each story for health news first, then disease, place and region |
+| `news_eval.csv` | 28 labeled news stories for `evaluate.py --news` (written by the developer, so scores are optimistic) |
 | `newsfeed.py` | Reads RSS and Atom news feeds (Python standard library only, nothing to install) |
 | `demo-news.xml` | Practice news feed: 12 made-up stories from a made-up outlet, for testing and the demo |
 | `evaluate.py` | Scores an extractor against hand-labeled posts: precision, recall, F1 |
@@ -79,7 +81,19 @@ Afterwards, clear the demo: Firebase console → Firestore → `media_posts` and
 
 ## News feeds (RSS)
 
-An RSS feed is an XML file a news site keeps updated with its latest stories. Each story is an `<item>` with a `<title>`, `<link>`, `<description>` (short summary), `<pubDate>` and `<guid>` (unique id). The worker reads the headline and summary (plus the start of the article if the summary is short), runs the same extractor on it, and saves the result with `source: "news"`.
+An RSS feed is an XML file a news site keeps updated with its latest stories. Each story is an `<item>` with a `<title>`, `<link>`, `<description>` (short summary), `<pubDate>` and `<guid>` (unique id). The worker reads the headline and summary (plus the start of the article if the summary is short) and saves the result with `source: "news"`.
+
+News gets its own extractor (`news_extract.py`), because stories name diseases and places but rarely list symptoms. It screens each story in steps:
+
+| Field | Values |
+| --- | --- |
+| `health_topic` | `infectious_disease`, `other_health` (heat, overdoses, gambling, cancer...), `not_health` |
+| `report_type` | `cases_or_outbreak`, `exposure_warning`, `advisory_or_prevention`, `research_or_policy`, `past_event`, `none` |
+| `pathogen`, `syndrome` | the disease named, and the illness pattern even with no symptoms (a potluck that sickened 12 = stomach) |
+| `region`, `place` | `asu_campus` (a hall or campus is named), `arizona`, `elsewhere_us`, `outside_us`; a city like "Tempe" is not a campus |
+| `case_count` | the number of sick people, if given |
+
+Only **infectious disease + current cases or an exposure** counts as an illness signal. The log marks each story `SIGNAL`, `health` (health news that isn't a signal) or `skip`.
 
 ```
 py sentinel_worker.py rss demo-news.xml --dry-run       # practice feed, print only (no Firebase needed)
@@ -116,6 +130,15 @@ python sentinel_worker.py ingest posts.csv
 ```
 
 Running the same file twice adds nothing new. **The text and the author are never stored**: only the source type, time and extracted fields, under an id made by hashing the post.
+
+## Measuring news accuracy
+
+```
+py evaluate.py --news            # keyword news screen on news_eval.csv
+py evaluate.py --news --openai   # the model
+```
+
+It scores the health filter (right `health_topic`), the illness signal (precision, recall, F1), the disease named and the place. It does **not** score symptoms. For an honest score, add real headlines to `news_eval.csv` (for example the ABC15 ones from a `--max-age 365` dry run) and label them before running it.
 
 ## Measuring accuracy (days 10–11)
 

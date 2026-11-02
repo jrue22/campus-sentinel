@@ -38,6 +38,7 @@ import time
 
 from extract import extract
 import newsfeed
+from news_extract import extract_news
 
 SOURCES = {"demo-feed", "news", "school", "reddit", "x", "tiktok", "youtube", "journal", "other"}
 
@@ -188,11 +189,16 @@ def story_id(feed, story):
 
 def news_record(result, story, outlet, posted_at, demo):
     record = make_record(result, "news", posted_at, demo)
-    record["who"] = "other" if result["is_illness"] else "none"     # a news story reports on other people
     record["outlet"] = outlet[:80]
-    # For illness stories only, keep the public headline and link so the dashboard can list them.
-    # (Social posts never store text; a published headline is public and links back to the source.)
-    if result["is_illness"]:
+    # The news screen (news_extract.py): is it health news, what kind, which disease, where
+    record["healthTopic"] = result["health_topic"]
+    record["reportType"] = result["report_type"]
+    record["syndrome"] = result["syndrome"]
+    record["region"] = result["region"]
+    record["caseCount"] = result["case_count"]
+    # For infectious-disease stories only, keep the public headline and link so the dashboard can
+    # list them. (Social posts never store text; a published headline is public and links to the source.)
+    if result["health_topic"] == "infectious_disease":
         record["headline"] = story["title"][:200]
         link = story["link"] if re.match(r"https?://", story["link"] or "") else ""
         record["link"] = link[:500]
@@ -227,7 +233,7 @@ def read_feed(source, use_openai, db, done, cache, demo_shift=None, only_new=Tru
             old += 1
             print(f"  old  {story['title'][:70]!r} (published {published:%Y-%m-%d}, more than {max_age:g} days ago)")
             continue
-        result = extract(newsfeed.story_text(story), use_openai)
+        result = extract_news(newsfeed.story_text(story), use_openai)
         posted_at = published.strftime("%Y-%m-%dT%H:%M:%S.000Z")
         if db is not None:
             db.collection("media_extracted").document(sid).set(
@@ -235,13 +241,29 @@ def read_feed(source, use_openai, db, done, cache, demo_shift=None, only_new=Tru
         done.add(sid)
         n += 1
         ill += result["is_illness"]
-        tag = (", ".join(result["symptoms"]) or "no symptoms") + f" @ {result['place']}"
-        if result["pathogen"] != "none":
-            tag += f"  pathogen: {result['pathogen']}"
-        print(f"  {'ILL ' if result['is_illness'] else 'skip'} [{result['method']}] {story['title'][:70]!r} -> {tag}")
-    print(f"  {outlet or source}: {len(stories)} stories in the feed, {n} analyzed, {ill} about illness"
+        print(f"  {news_tag(result)} [{result['method']}] {story['title'][:70]!r} -> {news_detail(result)}")
+    print(f"  {outlet or source}: {len(stories)} stories in the feed, {n} analyzed, {ill} illness signals"
           + (f", {seen} already seen" if seen else "") + (f", {old} too old" if old else ""))
     return n, ill
+
+
+def news_tag(r):
+    """SIGNAL = infectious disease with current cases or an exposure; HEALTH = other health news; skip = not health."""
+    return "SIGNAL" if r["is_illness"] else "health" if r["health_topic"] != "not_health" else "skip  "
+
+
+def news_detail(r):
+    if r["health_topic"] == "not_health":
+        return "not health news"
+    bits = [r["health_topic"].replace("_", " "), r["report_type"].replace("_", " ")]
+    if r["pathogen"] != "none":
+        bits.append(r["pathogen"])
+    if r["syndrome"] not in ("none", "other"):
+        bits.append(r["syndrome"])
+    if r["case_count"]:
+        bits.append(f"{r['case_count']} sick")
+    bits.append(f"@ {r['place'] if r['place'] != 'unknown' else r['region']}")
+    return ", ".join(bits)
 
 
 def save_debug(text):
@@ -296,12 +318,12 @@ def run_drip(path, stories, outlet, use_openai, db, drip_min):
     print(f"Dripping {len(stories)} practice stories from {outlet}, one every {drip_min} min. Ctrl+C to stop.")
     try:
         for i, story in enumerate(stories, 1):
-            result = extract(newsfeed.story_text(story), use_openai)
+            result = extract_news(newsfeed.story_text(story), use_openai)
             sid = story_id(path, story)
             if db is not None:
                 db.collection("media_extracted").document(sid).set(
                     news_record(result, story, outlet, now_iso(), demo=True))
-            print(f"  {i}/{len(stories)} {'ILL ' if result['is_illness'] else 'skip'} {story['title'][:70]!r}")
+            print(f"  {i}/{len(stories)} {news_tag(result)} {story['title'][:70]!r} -> {news_detail(result)}")
             if i < len(stories):
                 time.sleep(drip_min * 60)
     except KeyboardInterrupt:

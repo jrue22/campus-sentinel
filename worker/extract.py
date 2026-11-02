@@ -56,7 +56,10 @@ PLACE_IDS = list(RESIDENCE_CAMPUS) + list(CAMPUS_IDS) + ["unknown"]
 
 # Diseases a text may name directly (news and notices often name the disease, not the symptoms).
 PATHOGEN_IDS = ["none", "norovirus", "rotavirus", "influenza", "covid", "rsv", "strep", "salmonella",
-                "cryptosporidium", "measles", "mono", "other"]
+                "cryptosporidium", "measles", "mono",
+                # Added for news, which names diseases more often than people do:
+                "pertussis", "valley_fever", "hantavirus", "hepatitis_a", "ecoli", "listeria", "mpox",
+                "tuberculosis", "west_nile", "legionella", "meningococcal", "chickenpox", "other"]
 PATHOGEN_ALIASES = {
     "norovirus": ["norovirus", "noro", "stomach flu", "winter vomiting"],
     "rotavirus": ["rotavirus"],
@@ -68,6 +71,18 @@ PATHOGEN_ALIASES = {
     "cryptosporidium": ["cryptosporidium", "crypto outbreak"],
     "measles": ["measles"],
     "mono": ["mono", "mononucleosis"],
+    "pertussis": ["pertussis", "whooping cough"],
+    "valley_fever": ["valley fever", "coccidioidomycosis", "cocci"],
+    "hantavirus": ["hantavirus"],
+    "hepatitis_a": ["hepatitis a", "hep a"],
+    "ecoli": ["e. coli", "e.coli", "e coli", "stec"],
+    "listeria": ["listeria", "listeriosis"],
+    "mpox": ["mpox", "monkeypox"],
+    "tuberculosis": ["tuberculosis", "tb case", "tb cases"],
+    "west_nile": ["west nile"],
+    "legionella": ["legionella", "legionnaires"],
+    "meningococcal": ["meningococcal", "bacterial meningitis"],
+    "chickenpox": ["chickenpox", "chicken pox", "varicella"],
 }
 
 # Names and nicknames people actually use. Longest names are checked first.
@@ -349,6 +364,7 @@ RESOLVED = re.compile(r"\s*(?:has |is |finally |is finally |has finally )*(?:bro
 def symptom_mentions(text):
     """{symptom id: (present, negated)} for every symptom phrase found in the text."""
     t = " " + text.lower().replace("\u2019", "'") + " "
+    t = t.replace("valley fever", "valley-disease")      # a disease name (coccidioidomycosis), not a fever
     found = {}
     for sid, phrases in LEXICON.items():
         for p in phrases:
