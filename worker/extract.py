@@ -80,8 +80,11 @@ PLACE_ALIASES = {
     "dtphx-taylor": ["taylor place", "taylor"],
     "poly-century": ["century hall"],
     "west-casadeoro": ["casa de oro"],
-    "campus-tempe": ["tempe campus", "tempe", "memorial union", "the mu", "hayden library"],
-    "campus-downtown": ["downtown phoenix", "downtown campus", "dtphx", "downtown"],
+    # Campus-level places, including well-known buildings on each campus
+    "campus-tempe": ["tempe campus", "tempe", "memorial union", "the mu", "hayden library", "hayden",
+                     "sun devil fitness", "sdfc", "biodesign"],
+    "campus-downtown": ["downtown phoenix", "downtown campus", "dtphx", "downtown",
+                        "health north", "health south", "cronkite"],
     "campus-poly": ["polytechnic", "poly campus", "poly"],
     "campus-west": ["west valley", "west campus"],
 }
@@ -116,18 +119,31 @@ Rules:
   jokes, vaccine or clinic announcements, general health advice, and past illnesses.
 - who: "self" (the writer), "close_contact" (roommate, friend, floor, class), "other"
   (people in general), or "none".
-- symptoms: only symptoms the text says are present, mapped to the allowed ids.
-  Respect negation: "no fever" means fever is NOT present. Map slang, e.g.
-  "threw up"/"puking" -> vomiting, "the runs" -> diarrhea, "can't stop sneezing"/"stuffy" -> nose,
-  "burning up" -> fever, "wiped out" -> fatigue, "my head is pounding" -> headache.
-- place: the most specific allowed place the text names (residence halls first, then campus),
-  using nicknames: "hassy" = tempe-hassayampa, "manzy" = tempe-manzanita, "vds" = tempe-vds,
-  "the MU" = campus-tempe. Use "unknown" if no place is named. Never guess.
+- symptoms: only symptoms the text says are present, mapped to the allowed ids. Never add a
+  symptom the text doesn't describe. Respect negation: "no fever" means fever is NOT present.
+  Map slang, e.g. "threw up"/"puking" -> vomiting; "the runs"/"blew up the toilet"/"on the toilet all night"
+  -> diarrhea; "hurts to swallow"/"throat is on fire" -> sorethroat; "snot"/"can't stop sneezing"/"stuffy" -> nose;
+  "burning up" -> fever; "wiped out" -> fatigue; "my head is pounding" -> headache.
+- place: ONLY a place the text names, using the most specific one (residence halls first, then campus).
+  Most posts don't name a place: then answer "unknown". Never default to campus-tempe or any campus.
+  Nicknames and buildings: "hassy" = tempe-hassayampa, "manzy" = tempe-manzanita, "vds" = tempe-vds,
+  "the MU"/"Hayden"/"SDFC" = campus-tempe; "Health North"/"Health South"/"Cronkite"/"Taylor" = Downtown Phoenix
+  (Taylor Place is dtphx-taylor; the others are campus-downtown).
 - pathogen: a disease the text names as present ("norovirus cases", "I have the flu", "strep is going around"),
   otherwise "none". Do not infer a disease from symptoms alone. A vaccine or clinic notice is not a case.
 - onset_days_ago: whole days since symptoms started if stated ("since Tuesday", "last night" = 0 or 1),
   otherwise null.
 - confidence: 0 to 1, how sure you are that is_illness is correct.
+
+Examples:
+"Somebody blew up the toilet in health north, gross" ->
+  {"is_illness": true, "who": "other", "symptoms": ["diarrhea"], "place": "campus-downtown", "pathogen": "none", "onset_days_ago": null, "confidence": 0.7}
+"tfw you wake up and it hurts to swallow" ->
+  {"is_illness": true, "who": "self", "symptoms": ["sorethroat"], "place": "unknown", "pathogen": "none", "onset_days_ago": 0, "confidence": 0.85}
+"that new dining hall is sick!" ->
+  {"is_illness": false, "who": "none", "symptoms": [], "place": "unknown", "pathogen": "none", "onset_days_ago": null, "confidence": 0.95}
+"half my floor at hassy has noro, everyone's puking" ->
+  {"is_illness": true, "who": "close_contact", "symptoms": ["vomiting"], "place": "tempe-hassayampa", "pathogen": "norovirus", "onset_days_ago": null, "confidence": 0.95}
 Return only the JSON."""
 
 
@@ -161,7 +177,7 @@ def extract_openai(text, client=None, model=None):
                 model=model, temperature=0, messages=messages,   # temperature 0: as repeatable as possible
                 response_format={"type": "json_schema",
                                  "json_schema": {"name": "illness_extraction", "strict": True, "schema": SCHEMA}})
-            return clean(json.loads(response.choices[0].message.content), method="openai")
+            return ground(clean(json.loads(response.choices[0].message.content), method="openai"), text)
         except Exception as e:
             if not _looks_like_unsupported(e):
                 raise
@@ -172,7 +188,35 @@ def extract_openai(text, client=None, model=None):
         messages=[{"role": "system", "content": INSTRUCTIONS + "\n\nReturn a JSON object matching this JSON Schema exactly:\n"
                    + json.dumps(SCHEMA)}, messages[1]],
         response_format={"type": "json_object"})
-    return clean(json.loads(response.choices[0].message.content), method="openai")
+    return ground(clean(json.loads(response.choices[0].message.content), method="openai"), text)
+
+
+def place_named(place, text):
+    """True if the text contains a name or nickname for this place (or, for a campus, for one of its halls)."""
+    t = " " + text.lower().replace("\u2019", "'") + " "
+    names = list(PLACE_ALIASES.get(place, []))
+    campus = CAMPUS_IDS.get(place)
+    if campus:   # a campus is also "named" when one of its residence halls is
+        for rid, c in RESIDENCE_CAMPUS.items():
+            if c == campus:
+                names += PLACE_ALIASES.get(rid, [])
+    return any(_has(t, n) for n in names)
+
+
+def ground(r, text):
+    """Grounding check: keep the model's place only if the text actually names it.
+
+    LLMs tend to fill in a plausible place (usually Tempe) when none is given. A place
+    that can't be found in the text becomes "unknown", so the map and the place table
+    only show places people actually mentioned.
+    """
+    # If the text doesn't name the model's place, use the place the text does name
+    # (from the list of names and nicknames), or "unknown".
+    if r["place"] != "unknown" and not place_named(r["place"], text):
+        fixed = find_place(text)
+        r = {**r, "place": fixed, "campus": RESIDENCE_CAMPUS.get(fixed) or CAMPUS_IDS.get(fixed),
+             "place_corrected": True}
+    return r
 
 
 def _looks_like_unsupported(e):
@@ -244,6 +288,15 @@ def _negated(text, phrase):
     return any(_has(window, n) for n in NEGATIONS)
 
 
+def find_place(text):
+    """The most specific place named in the text, from PLACE_ALIASES (residence halls before campuses)."""
+    t = " " + text.lower().replace("\u2019", "'") + " "
+    for pid, names in sorted(PLACE_ALIASES.items(), key=lambda kv: (kv[0].startswith("campus-"), -max(len(n) for n in kv[1]))):
+        if any(_has(t, n) for n in names):
+            return pid
+    return "unknown"
+
+
 def extract_keywords(text):
     t = " " + text.lower().replace("’", "'") + " "
     figurative = any(re.search(p, t) for p in FIGURATIVE)
@@ -261,11 +314,7 @@ def extract_keywords(text):
     if figurative and not symptoms:
         is_illness = False
 
-    place = "unknown"
-    for pid, names in sorted(PLACE_ALIASES.items(), key=lambda kv: -max(len(n) for n in kv[1])):
-        if any(_has(t, n) for n in sorted(names, key=len, reverse=True)):
-            place = pid
-            break
+    place = find_place(t)
 
     onset = None
     if re.search(r"\b(last night|this morning|today|tonight)\b", t):

@@ -6,6 +6,7 @@ Runs on your laptop (or any computer) and turns text into illness signals.
   python sentinel_worker.py live              # watch the demo feed and process new posts as they arrive
   python sentinel_worker.py ingest posts.csv  # process a file of collected posts (news, Reddit, transcripts...)
   python sentinel_worker.py test "text..."    # try the extractor on one sentence
+  python sentinel_worker.py models            # list the models your API key can use
 
 Add --keywords to any command to skip OpenAI and use the keyword method.
 
@@ -22,8 +23,10 @@ Setup (see README.md in this folder):
 
 import csv
 import datetime as dt
+import glob
 import hashlib
 import json
+import os
 import sys
 import threading
 import time
@@ -37,12 +40,32 @@ def now_iso():
     return dt.datetime.now(dt.timezone.utc).strftime("%Y-%m-%dT%H:%M:%S.%f")[:-3] + "Z"
 
 
+def find_key():
+    """The Firebase key: GOOGLE_APPLICATION_CREDENTIALS if set, else service-account.json next to this file."""
+    here = os.path.dirname(os.path.abspath(__file__))
+    candidates = [os.environ.get("GOOGLE_APPLICATION_CREDENTIALS", ""),
+                  os.path.join(here, "service-account.json"),
+                  os.path.join(here, "service-account.json.json")]      # Windows hides extensions, so this happens
+    for path in candidates:
+        if path and os.path.isfile(path):
+            return path
+    others = sorted(glob.glob(os.path.join(here, "*firebase-adminsdk*.json")))
+    if others:
+        return others[0]                                                  # the file as Firebase named it
+    sys.exit("Firebase key not found.\n"
+             "  Download it: Firebase console > gear icon > Project settings > Service accounts > Generate new private key,\n"
+             f"  then save it in {here} as service-account.json\n"
+             "  (or set GOOGLE_APPLICATION_CREDENTIALS to its full path). Never upload this file to GitHub.")
+
+
 def connect():
     """Connect to Firestore with the Admin SDK (bypasses the security rules, so keep the key private)."""
     import firebase_admin
-    from firebase_admin import firestore
+    from firebase_admin import credentials, firestore
     if not firebase_admin._apps:
-        firebase_admin.initialize_app()          # reads GOOGLE_APPLICATION_CREDENTIALS
+        key = find_key()
+        print(f"Using Firebase key: {os.path.basename(key)}")
+        firebase_admin.initialize_app(credentials.Certificate(key))
     return firestore.client()
 
 
@@ -61,6 +84,7 @@ def make_record(result, source, posted_at, demo):
         "onsetDaysAgo": result["onset_days_ago"],
         "confidence": result["confidence"],
         "method": result["method"],
+        "placeCorrected": bool(result.get("place_corrected")),   # the grounding check changed the model's place
         "demo": bool(demo),
     }
 
@@ -88,6 +112,8 @@ def run_live(use_openai):
         db.collection("media_extracted").document(doc.id).set(
             make_record(result, "demo-feed", post.get("createdAt") or now_iso(), demo=True))
         tag = (", ".join(result["symptoms"]) or "no symptoms") + f" @ {result['place']}"
+        if result.get("place_corrected"):
+            tag += "  (place corrected: the model named a place the post doesn't mention)"
         print(f"  {'ILL ' if result['is_illness'] else 'skip'} [{result['method']}] {text[:60]!r} -> {tag}")
 
     def on_snapshot(snapshot, changes, read_time):
@@ -152,5 +178,8 @@ if __name__ == "__main__":
         run_ingest(args[1], use_openai)
     elif cmd == "test" and len(args) > 1:
         run_test(" ".join(args[1:]), use_openai)
+    elif cmd == "models":
+        from extract import list_models
+        print("\n".join(list_models()))
     else:
         print(__doc__)
