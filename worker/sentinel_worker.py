@@ -12,6 +12,7 @@ Runs on your laptop (or any computer) and turns text into illness signals.
 
 Add --keywords to any command to skip OpenAI and use the keyword method.
 Add --dry-run to rss to print the results without saving anything (no Firebase key needed).
+Add --max-age 365 to rss to also analyze stories up to 365 days old (default 14; useful with --dry-run for testing).
 
 What it writes: one document per post in the "media_extracted" collection with
 the extracted fields only (source type, time, symptoms, place, onset). It never
@@ -198,7 +199,7 @@ def news_record(result, story, outlet, posted_at, demo):
     return record
 
 
-def read_feed(source, use_openai, db, done, cache, demo_shift=None, only_new=True):
+def read_feed(source, use_openai, db, done, cache, demo_shift=None, only_new=True, max_age=NEWS_MAX_AGE_DAYS):
     """Process the new stories in one feed. Returns (stories read, about illness)."""
     xml_text = newsfeed.fetch(source, cache)
     if xml_text is None:
@@ -222,9 +223,9 @@ def read_feed(source, use_openai, db, done, cache, demo_shift=None, only_new=Tru
         published = story["published"] or now
         if demo_shift is not None:
             published = published + demo_shift                      # practice feed: move the dates up to today
-        if now - published > dt.timedelta(days=NEWS_MAX_AGE_DAYS):
+        if now - published > dt.timedelta(days=max_age):
             old += 1
-            print(f"  old  {story['title'][:70]!r} (published {published:%Y-%m-%d}, more than {NEWS_MAX_AGE_DAYS} days ago)")
+            print(f"  old  {story['title'][:70]!r} (published {published:%Y-%m-%d}, more than {max_age:g} days ago)")
             continue
         result = extract(newsfeed.story_text(story), use_openai)
         posted_at = published.strftime("%Y-%m-%dT%H:%M:%S.000Z")
@@ -251,7 +252,7 @@ def save_debug(text):
     print(f"  (saved the raw response as {os.path.basename(path)})")
 
 
-def run_rss(sources, use_openai, every_min=None, dry_run=False, drip_min=None):
+def run_rss(sources, use_openai, every_min=None, dry_run=False, drip_min=None, max_age=NEWS_MAX_AGE_DAYS):
     db = None if dry_run else connect()
     done = set() if db is None else {ref.id for ref in db.collection("media_extracted").list_documents()}
     cache = {}
@@ -276,7 +277,7 @@ def run_rss(sources, use_openai, every_min=None, dry_run=False, drip_min=None):
         print(f"Checking {len(web)} feed(s) at {dt.datetime.now().strftime('%H:%M')}")
         for url in web:
             try:
-                read_feed(url, use_openai, db, done, cache)
+                read_feed(url, use_openai, db, done, cache, max_age=max_age)
             except Exception as e:                                   # one broken feed shouldn't stop the others
                 print(f"  ! {url}: {type(e).__name__}: {str(e)[:150]}")
         if not every_min:
@@ -326,7 +327,7 @@ def run_test(text, use_openai):
 if __name__ == "__main__":
     # Words that aren't flags or the numbers after --every / --drip
     args = [a for i, a in enumerate(sys.argv[1:], 1)
-            if not a.startswith("--") and sys.argv[i - 1] not in ("--every", "--drip")]
+            if not a.startswith("--") and sys.argv[i - 1] not in ("--every", "--drip", "--max-age")]
     use_openai = "--keywords" not in sys.argv
     if not args:
         print(__doc__); sys.exit(0)
@@ -337,7 +338,7 @@ if __name__ == "__main__":
         run_ingest(args[1], use_openai)
     elif cmd == "rss" and len(args) > 1:
         run_rss(args[1:], use_openai, every_min=option("--every"), dry_run="--dry-run" in sys.argv,
-                drip_min=option("--drip"))
+                drip_min=option("--drip"), max_age=option("--max-age", NEWS_MAX_AGE_DAYS))
     elif cmd == "test" and len(args) > 1:
         run_test(" ".join(args[1:]), use_openai)
     elif cmd == "models":

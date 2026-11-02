@@ -88,6 +88,10 @@ py sentinel_worker.py rss demo-news.xml --drip 2        # live demo: one practic
 py sentinel_worker.py rss https://www.abc15.com/index.rss --every 30    # a real feed, checked every 30 minutes
 ```
 
+- **Which feed?** A station's home feed (like ABC15's `index.rss`) holds a few featured stories that can be weeks old. A Google News search feed is fresher and already focused on illness, for example
+  `https://news.google.com/rss/search?q=(norovirus OR flu OR outbreak OR measles) Arizona when:7d&hl=en-US&gl=US&ceid=US:en`
+  (put the address in quotes in PowerShell). `when:7d` keeps it to the last 7 days.
+- `--max-age 365` also analyzes stories up to a year old. Use it with `--dry-run` to test on older stories; saved stories older than 14 days won't show on the dashboard anyway.
 - You can list several feed addresses after `rss`. Each story is processed **once** (its id comes from the feed's `<guid>`), and stories older than 14 days are skipped.
 - `--every 30` re-checks every 30 minutes and asks the site "anything new since last time?" (ETag / Last-Modified), so an unchanged feed costs almost nothing. Please don't check more often than every 15 minutes.
 - The practice feed is marked as example data, so **Include example data** on the dashboard hides it. Its dates are moved up so the newest story is "now".
