@@ -80,13 +80,14 @@ PLACE_ALIASES = {
     "dtphx-taylor": ["taylor place", "taylor"],
     "poly-century": ["century hall"],
     "west-casadeoro": ["casa de oro"],
-    # Campus-level places, including well-known buildings on each campus
-    "campus-tempe": ["tempe campus", "tempe", "memorial union", "the mu", "hayden library", "hayden",
-                     "sun devil fitness", "sdfc", "biodesign"],
-    "campus-downtown": ["downtown phoenix", "downtown campus", "dtphx", "downtown",
-                        "health north", "health south", "cronkite"],
-    "campus-poly": ["polytechnic", "poly campus", "poly"],
-    "campus-west": ["west valley", "west campus"],
+    # Campus-level places: names, nicknames and well-known buildings. The grounding check only
+    # accepts places named here, so add any nickname students use that's missing.
+    "campus-tempe": ["tempe campus", "asu tempe", "main campus", "tempe", "memorial union", "the mu",
+                     "hayden library", "hayden", "sun devil fitness", "sdfc", "biodesign"],
+    "campus-downtown": ["downtown phoenix", "downtown phx", "downtown campus", "asu downtown", "dtphx", "dt phx",
+                        "downtown", "health north", "health south", "cronkite"],
+    "campus-poly": ["polytechnic", "polytech", "poly tech", "asu poly", "poly campus", "poly"],
+    "campus-west": ["west valley", "west campus", "asu west", "west valley campus"],
 }
 
 # ---------------------------------------------------------------------------
@@ -128,7 +129,8 @@ Rules:
   Most posts don't name a place: then answer "unknown". Never default to campus-tempe or any campus.
   Nicknames and buildings: "hassy" = tempe-hassayampa, "manzy" = tempe-manzanita, "vds" = tempe-vds,
   "the MU"/"Hayden"/"SDFC" = campus-tempe; "Health North"/"Health South"/"Cronkite"/"Taylor" = Downtown Phoenix
-  (Taylor Place is dtphx-taylor; the others are campus-downtown).
+  (Taylor Place is dtphx-taylor; the others are campus-downtown); "polytech"/"poly" = campus-poly;
+  "asu west" = campus-west; "main campus" = campus-tempe.
 - pathogen: a disease the text names as present ("norovirus cases", "I have the flu", "strep is going around"),
   otherwise "none". Do not infer a disease from symptoms alone. A vaccine or clinic notice is not a case.
 - onset_days_ago: whole days since symptoms started if stated ("since Tuesday", "last night" = 0 or 1),
