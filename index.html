@@ -237,6 +237,27 @@
   /* At a glance */
   .glance { background: var(--surface); border: 1px solid var(--line); border-top: 4px solid var(--accent); border-radius: 12px; padding: 18px; display: grid; gap: 10px; }
   .glance p { max-width: 75ch; font-size: 1.02rem; line-height: 1.6; }
+  /* Dashboard sub-tabs: a scrollable row of pills that stays at the top while scrolling */
+  .subtabs { position: sticky; top: env(safe-area-inset-top, 0px); z-index: 5; display: flex; gap: 6px; overflow-x: auto;
+    padding-block: 8px; margin-inline: -16px; padding-inline: 16px; background: var(--bg); border-bottom: 1px solid var(--line);
+    scrollbar-width: none; }
+  .subtabs::-webkit-scrollbar { display: none; }
+  .subtabs button { flex: none; display: inline-flex; align-items: center; gap: 6px; border: 1px solid var(--line); background: var(--surface);
+    color: var(--ink-2); border-radius: 999px; padding: 7px 14px; font: 500 0.88rem var(--f-body); cursor: pointer; min-height: 38px; }
+  .subtabs button[aria-selected="true"] { background: var(--accent); border-color: var(--accent); color: var(--accent-ink); }
+  .badge { font: 600 0.7rem/1 var(--f-mono); padding: 3px 6px; border-radius: 999px; background: var(--surface-2); color: var(--ink); }
+  .badge.alert { background: var(--alert); color: #FFFFFF; }
+  .subtabs button[aria-selected="true"] .badge:not(.alert) { background: rgba(255,255,255,0.25); color: inherit; }
+  .subpanel { display: grid; gap: 22px; min-width: 0; }
+  /* Agreement table: each source cell is a button that opens that source's tab */
+  .src-cell { display: inline-flex; align-items: center; gap: 6px; background: none; border: 0; padding: 2px 0; color: var(--ink);
+    font: inherit; cursor: pointer; text-align: left; }
+  .src-cell:hover span { text-decoration: underline; }
+  .dot-on { width: 10px; height: 10px; border-radius: 50%; background: var(--accent); flex: none; display: inline-block; }
+  /* Live demo tab: two big QR codes for the projector */
+  .demo-grid { display: grid; grid-template-columns: repeat(auto-fit, minmax(260px, 1fr)); gap: 16px; }
+  .demo-card { justify-items: center; text-align: center; }
+  .demo-card .qr img, .demo-card .qr canvas { width: 220px; height: 220px; }
   .two-col { display: grid; grid-template-columns: repeat(auto-fit, minmax(320px, 1fr)); gap: 16px; }
   .toolbar { display: flex; gap: 12px; align-items: center; flex-wrap: wrap; font-size: 0.86rem; }
 
@@ -353,124 +374,170 @@
           <span class="eyebrow">Surveillance report · last 7 days by onset date</span>
           <h2 id="statusLine">Loading reports…</h2>
         </div>
-        <span class="live off" id="liveBadge"><i></i><span>Connecting</span></span>
-      </div>
-
-      <div class="kpis" id="kpis"></div>
-
-      <div class="panel qr-panel" id="qrPanel">
-        <div class="qr" id="qrCode" aria-label="QR code to open the survey"></div>
-        <div class="prose" style="gap:6px">
-          <span class="eyebrow">Live demo</span>
-          <h3>Scan to report symptoms</h3>
-          <p class="muted">Point your phone camera at the code. New reports appear on this dashboard within seconds.</p>
-          <span class="url" id="qrUrl"></span>
-        </div>
-        <div class="qr" id="qrFeed" aria-label="QR code to open the demo social feed"></div>
-        <div class="prose" style="gap:6px">
-          <span class="eyebrow">Live demo</span>
-          <h3>Scan to post on the demo feed</h3>
-          <p class="muted">Write a short post like you would on social media. The NLP system tags it within seconds.</p>
-          <span class="url" id="qrFeedUrl"></span>
+        <div class="toolbar">
+          <label class="check" style="align-items:center"><input type="checkbox" id="showDemo" checked> Include example data</label>
+          <span class="live off" id="liveBadge"><i></i><span>Connecting</span></span>
         </div>
       </div>
 
-      <div class="panel-head">
-        <h3>Potential clusters</h3>
-        <label class="check toolbar" style="align-items:center"><input type="checkbox" id="showDemo" checked> Include example reports</label>
-      </div>
-      <div class="alerts" id="alerts"></div>
+      <!-- Sub-tabs: one view per data source. Badges show where something needs attention. -->
+      <nav class="subtabs" role="tablist" aria-label="Dashboard views">
+        <button role="tab" data-sub="overview" aria-selected="true">Overview</button>
+        <button role="tab" data-sub="symptoms" aria-selected="false">Symptoms <span class="badge" id="badge-symptoms" hidden></span></button>
+        <button role="tab" data-sub="wastewater" aria-selected="false">Wastewater <span class="badge" id="badge-wastewater" hidden></span></button>
+        <button role="tab" data-sub="genomics" aria-selected="false">Genomics <span class="badge" id="badge-genomics" hidden></span></button>
+        <button role="tab" data-sub="social" aria-selected="false">Social <span class="badge" id="badge-social" hidden></span></button>
+        <button role="tab" data-sub="demo" aria-selected="false">Live demo</button>
+      </nav>
 
-      <div class="panel">
-        <div class="panel-head">
-          <h3>Wastewater signals</h3>
-          <span class="eyebrow">Last 7 days vs prior 4 weeks</span>
-        </div>
-        <div id="wwMap" class="ww-map" role="region" aria-label="Map of wastewater sampling sites"></div>
-        <div class="map-legend">
-          <span><i class="dot" style="background:var(--alert)"></i>High (4× or more)</span>
-          <span><i class="dot" style="background:var(--watch)"></i>Elevated (2× or more)</span>
-          <span><i class="dot" style="background:var(--ok)"></i>Near baseline</span>
-          <span><i class="dot" style="background:var(--ink-2)"></i>Not enough samples</span>
-          <span>Tap a circle for details.</span>
-        </div>
-        <p class="muted" id="wwMapNote" hidden></p>
-        <p class="muted" id="wwStatus"></p>
-        <div class="table-box" id="wwTable"></div>
-      </div>
+      <!-- ============ OVERVIEW ============ -->
+      <div class="subpanel" data-subpanel="overview">
+        <!-- At a glance: a plain-language summary built from the numbers on the other tabs -->
+        <section class="glance" aria-live="polite">
+          <span class="eyebrow">At a glance</span>
+          <p id="glance">Waiting for data…</p>
+        </section>
 
-      <div class="panel">
-        <div class="panel-head">
-          <h3>Did wastewater see it first?</h3>
-          <span class="eyebrow">Lead time</span>
-        </div>
-        <p class="muted">Lead time is the number of days between the wastewater rise (the first sample at 2× baseline or more) and the first symptom onset in the matching cluster.</p>
-        <div class="lead-legend">
-          <span><svg width="12" height="12" aria-hidden="true"><path d="M6 1l5 5-5 5-5-5z" fill="var(--accent)"/></svg>Wastewater rose</span>
-          <span><svg width="12" height="12" aria-hidden="true"><circle cx="6" cy="6" r="4.5" fill="var(--ink)"/></svg>First symptoms</span>
-          <span><svg width="12" height="12" aria-hidden="true"><path d="M6 1.5l5 9H1z" fill="var(--ink-2)"/></svg>First report</span>
-        </div>
-        <div class="table-box" id="wwLead"></div>
-      </div>
+        <div class="kpis" id="kpis"></div>
 
-      <div class="panel">
-        <div class="panel-head">
-          <h3>Social &amp; media signals <span class="pill alert-p" id="mediaSpike" hidden>Spike</span></h3>
-          <span class="eyebrow">NLP on posts, news and notices</span>
-        </div>
-        <p class="muted" id="mediaStatus">Waiting for data…</p>
-        <span class="eyebrow">Illness posts per 10 minutes · last 2 hours</span>
-        <div class="chart-box small" id="mediaChart"></div>
-        <span class="eyebrow">Last 24 hours by place</span>
-        <div class="table-box" id="mediaTable"></div>
-      </div>
-
-      <details class="panel" id="genomics">
-        <summary><h3>SARS-CoV-2 genomics</h3><span class="eyebrow">Lineage mix from sequencing (Freyja)</span></summary>
-        <div class="details-body">
-        <p class="muted">Labs sequence the SARS-CoV-2 RNA in each sample and estimate what share comes from each lineage. Wastewater mixes virus from many people, so these shares are estimates for the whole sewershed.</p>
-        <label class="field" style="max-width:320px">Sampling site
-          <select id="lineageSite"></select>
-        </label>
-        <p id="lineageNote"></p>
-        <div class="chart-box small" id="lineageChart"></div>
-        <div class="legend" id="lineageLegend"></div>
-        <h3 style="font-size:.95rem">Genetic diversity</h3>
-        <p class="muted">Effective number of lineages (e to the power of the Shannon index). It rises while a new lineage is moving in and falls once one lineage dominates.</p>
-        <div class="chart-box small" id="diversityChart"></div>
-        </div>
-      </details>
-
-      <div class="panel">
-        <div class="panel-head">
-          <h3>Epidemic curve</h3>
-          <span class="eyebrow">Reports by symptom-onset date · 14 days</span>
-        </div>
-        <div class="chart-box" id="epiCurve"></div>
-        <div class="legend" id="legend"></div>
-      </div>
-
-      <div class="two-col">
         <div class="panel">
-          <div class="panel-head"><h3>Where it is happening</h3><span class="eyebrow">Last 7 days</span></div>
-          <div class="table-box" id="heatmap"></div>
+          <div class="panel-head">
+            <h3>Where the signals agree</h3>
+            <span class="eyebrow">Symptom reports · wastewater · social posts</span>
+          </div>
+          <p class="muted">Each row is a place and illness type flagged by at least one source. The more sources agree, the stronger the evidence. Tap a source to open its tab.</p>
+          <div class="table-box" id="agreeTable"></div>
+        </div>
+      </div>
+
+      <!-- ============ SYMPTOMS ============ -->
+      <div class="subpanel" data-subpanel="symptoms" hidden>
+        <div class="panel-head">
+          <h3>Potential clusters</h3>
+          <span class="eyebrow">From symptom reports</span>
+        </div>
+        <div class="alerts" id="alerts"></div>
+
+        <div class="panel">
+          <div class="panel-head">
+            <h3>Epidemic curve</h3>
+            <span class="eyebrow">Reports by symptom-onset date · 14 days</span>
+          </div>
+          <div class="chart-box" id="epiCurve"></div>
+          <div class="legend" id="legend"></div>
+        </div>
+
+        <div class="two-col">
+          <div class="panel">
+            <div class="panel-head"><h3>Where it is happening</h3><span class="eyebrow">Last 7 days</span></div>
+            <div class="table-box" id="heatmap"></div>
+          </div>
+          <div class="panel">
+            <div class="panel-head"><h3>Likely pathogen type</h3><span class="eyebrow">Last 7 days</span></div>
+            <div class="table-box" id="categoryTable"></div>
+          </div>
+        </div>
+
+        <div class="panel">
+          <div class="panel-head"><h3>Latest reports</h3><span class="eyebrow">Anonymous</span></div>
+          <div class="table-box" id="recent"></div>
+        </div>
+      </div>
+
+      <!-- ============ WASTEWATER ============ -->
+      <div class="subpanel" data-subpanel="wastewater" hidden>
+        <div class="panel">
+          <div class="panel-head">
+            <h3>Wastewater signals</h3>
+            <span class="eyebrow">Last 7 days vs prior 4 weeks</span>
+          </div>
+          <div id="wwMap" class="ww-map" role="region" aria-label="Map of wastewater sampling sites"></div>
+          <div class="map-legend">
+            <span><i class="dot" style="background:var(--alert)"></i>High (4× or more)</span>
+            <span><i class="dot" style="background:var(--watch)"></i>Elevated (2× or more)</span>
+            <span><i class="dot" style="background:var(--ok)"></i>Near baseline</span>
+            <span><i class="dot" style="background:var(--ink-2)"></i>Not enough samples</span>
+            <span>Tap a circle for details.</span>
+          </div>
+          <p class="muted" id="wwMapNote" hidden></p>
+          <p class="muted" id="wwStatus"></p>
+          <div class="table-box" id="wwTable"></div>
+        </div>
+
+        <div class="panel">
+          <div class="panel-head">
+            <h3>Did wastewater see it first?</h3>
+            <span class="eyebrow">Lead time</span>
+          </div>
+          <p class="muted">Lead time is the number of days between the wastewater rise (the first sample at 2× baseline or more) and the first symptom onset in the matching cluster.</p>
+          <div class="lead-legend">
+            <span><svg width="12" height="12" aria-hidden="true"><path d="M6 1l5 5-5 5-5-5z" fill="var(--accent)"/></svg>Wastewater rose</span>
+            <span><svg width="12" height="12" aria-hidden="true"><circle cx="6" cy="6" r="4.5" fill="var(--ink)"/></svg>First symptoms</span>
+            <span><svg width="12" height="12" aria-hidden="true"><path d="M6 1.5l5 9H1z" fill="var(--ink-2)"/></svg>First report</span>
+          </div>
+          <div class="table-box" id="wwLead"></div>
+        </div>
+      </div>
+
+      <!-- ============ GENOMICS ============ -->
+      <div class="subpanel" data-subpanel="genomics" hidden>
+        <div class="panel" id="genomics">
+          <div class="panel-head">
+            <h3>SARS-CoV-2 lineages</h3>
+            <span class="eyebrow">Lineage mix from sequencing (Freyja)</span>
+          </div>
+          <p class="muted">Labs sequence the SARS-CoV-2 RNA in each sample and estimate what share comes from each lineage. Wastewater mixes virus from many people, so these shares are estimates for the whole sewershed.</p>
+          <label class="field" style="max-width:320px">Sampling site
+            <select id="lineageSite"></select>
+          </label>
+          <p id="lineageNote"></p>
+          <div class="chart-box small" id="lineageChart"></div>
+          <div class="legend" id="lineageLegend"></div>
         </div>
         <div class="panel">
-          <div class="panel-head"><h3>Likely pathogen type</h3><span class="eyebrow">Last 7 days</span></div>
-          <div class="table-box" id="categoryTable"></div>
+          <div class="panel-head">
+            <h3>Genetic diversity</h3>
+            <span class="eyebrow">Same site</span>
+          </div>
+          <p class="muted">Effective number of lineages (e to the power of the Shannon index). It rises while a new lineage is moving in and falls once one lineage dominates.</p>
+          <div class="chart-box small" id="diversityChart"></div>
         </div>
       </div>
 
-      <div class="panel">
-        <div class="panel-head"><h3>Latest reports</h3><span class="eyebrow">Anonymous</span></div>
-        <div class="table-box" id="recent"></div>
+      <!-- ============ SOCIAL ============ -->
+      <div class="subpanel" data-subpanel="social" hidden>
+        <div class="panel">
+          <div class="panel-head">
+            <h3>Social &amp; media signals <span class="pill alert-p" id="mediaSpike" hidden>Spike</span></h3>
+            <span class="eyebrow">NLP on posts, news and notices</span>
+          </div>
+          <p class="muted" id="mediaStatus">Waiting for data…</p>
+          <span class="eyebrow">Illness posts per 10 minutes · last 2 hours</span>
+          <div class="chart-box small" id="mediaChart"></div>
+          <span class="eyebrow">Last 24 hours by place</span>
+          <div class="table-box" id="mediaTable"></div>
+        </div>
       </div>
 
-      <!-- At a glance: a plain-language summary built from the numbers above -->
-      <section class="glance" aria-live="polite">
-        <span class="eyebrow">At a glance</span>
-        <p id="glance">Waiting for data…</p>
-      </section>
+      <!-- ============ LIVE DEMO ============ -->
+      <div class="subpanel" data-subpanel="demo" hidden>
+        <div class="demo-grid">
+          <div class="panel demo-card">
+            <span class="eyebrow">Live demo</span>
+            <h3>Report symptoms</h3>
+            <div class="qr" id="qrCode" aria-label="QR code to open the survey"></div>
+            <p class="muted">Point your phone camera at the code. New reports appear on the Symptoms tab within seconds.</p>
+            <span class="url" id="qrUrl"></span>
+          </div>
+          <div class="panel demo-card">
+            <span class="eyebrow">Live demo</span>
+            <h3>Post on the demo feed</h3>
+            <div class="qr" id="qrFeed" aria-label="QR code to open the demo social feed"></div>
+            <p class="muted">Write a short post like you would on social media. The NLP system tags it within seconds on the Social tab.</p>
+            <span class="url" id="qrFeedUrl"></span>
+          </div>
+        </div>
+      </div>
     </section>
 
     <!-- ===================== SCREEN 3: METHOD ===================== -->
@@ -1043,7 +1110,7 @@ function renderWastewaterMap(signals, clusters) {
 // Zoom to show every site. Only works while the dashboard is visible (a hidden
 // map has no size), so showScreen() calls this again when the dashboard opens.
 function fitWastewaterMap() {
-  if (!wwMap || wwMapFitted || $("screen-dashboard").hidden) return;
+  if (!wwMap || wwMapFitted || !$("wwMap").offsetWidth) return;      // a hidden map has no size
   wwMap.invalidateSize();
   const pts = mappedSites().map(s => [s.lat, s.lng]);
   if (pts.length) wwMap.fitBounds(pts, { padding: [30, 30], maxZoom: 14 });
@@ -1486,6 +1553,8 @@ function renderDashboard() {
   clusters.forEach(c => { c.ww = wwSignals.filter(sig => sig.level && wwMatches(sig, c)); });
   const wwUp = wwSignals.filter(sig => sig.level);
   const alerts = clusters.filter(c => c.level === "alert").length;
+  const media = mediaSummary(visibleMedia(), clusters, wwSignals);
+  const lineageShift = [...new Set(state.lineages.map(d => d.site))].some(site => biggestLineageChange(lineageSeries(site)));
 
   // Headline
   $("statusLine").textContent = clusters.length === 0
@@ -1506,6 +1575,7 @@ function renderDashboard() {
     kpi("Top syndrome", topSyn ? synCounts[topSyn] : 0, `<span class="muted">${topSyn ? syndromeById[topSyn].name : "none"}</span>`),
     kpi("Urgent flags", urgent, `<span class="muted">severe or red-flag symptoms</span>`),
     kpi("Wastewater signals", wwUp.length, `<span class="muted">${wwUp.filter(x => x.level === "alert").length} high · ${wwSignals.length} tracked</span>`),
+    kpi("Illness posts, 24 h", media.ill24, media.spike ? `<span class="up">spike: ${media.last30} in 30 min</span>` : `<span class="muted">of ${media.read24} posts read</span>`),
   ].join("");
 
   // Alerts
@@ -1520,8 +1590,9 @@ function renderDashboard() {
   renderRecent(reports);
   renderLeadTimes(wwSignals, clusters);
   renderGenomics();
-  const media = mediaSummary(visibleMedia(), clusters, wwSignals);
   renderMedia(media);
+  renderAgreement(signalAgreement(clusters, wwSignals, media));
+  renderBadges({ clusters, wwSignals, media, lineageShift });
   renderGlance({ week, prev, clusters, wwSignals, media });
 }
 
@@ -1899,6 +1970,89 @@ function renderMedia(summary) {
     : `<p class="muted">No illness posts in the last 24 hours.</p>`;
 }
 
+// "Where the signals agree": one row per place + syndrome flagged by any source,
+// with what each source says about it. Sorted so the best-supported rows come first.
+function signalAgreement(clusters, wwSignals, media) {
+  const campusOf = place => RESIDENCE_CAMPUS_OF(place);
+  const rows = {};
+  const add = (place, syndrome) => {
+    if (!place || place === "unknown" || !syndromeById[syndrome] || syndrome === "other") return;
+    rows[place + "|" + syndrome] = rows[place + "|" + syndrome] || { place, syndrome };
+  };
+  clusters.forEach(c => add(c.residenceId || (c.campusId && "campus-" + c.campusId), c.syndrome));
+  wwSignals.filter(s => s.level).forEach(s => {
+    const site = WW_SITE[s.site], syn = WW_TARGET[s.target].syndromes[0];
+    if ((site.residences || []).length) site.residences.forEach(r => add(r, syn));
+    else add("campus-" + site.campus, syn);
+  });
+  media.rows.forEach(r => add(r.place, r.syndrome));
+
+  // Does a row's place cover (or sit inside) another place?
+  const overlaps = (rowPlace, otherPlace) => rowPlace === otherPlace ||
+    (rowPlace.startsWith("campus-") && campusOf(otherPlace) === rowPlace.slice(7)) ||
+    (otherPlace.startsWith("campus-") && campusOf(rowPlace) === otherPlace.slice(7));
+
+  return Object.values(rows).map(row => {
+    // Prefer the cluster for this exact place; otherwise the largest overlapping one.
+    const cl = clusters.filter(c => c.syndrome === row.syndrome && overlaps(row.place, c.residenceId || "campus-" + c.campusId))
+      .sort((a, b) => ((b.residenceId || "campus-" + b.campusId) === row.place) - ((a.residenceId || "campus-" + a.campusId) === row.place)
+        || (b.level === "alert") - (a.level === "alert") || b.count - a.count)[0];
+    const ww = wwSignals.filter(s => s.level && WW_TARGET[s.target].syndromes.includes(row.syndrome) &&
+      ((WW_SITE[s.site].residences || []).length
+        ? WW_SITE[s.site].residences.some(r => overlaps(row.place, r))
+        : overlaps(row.place, "campus-" + WW_SITE[s.site].campus))).sort(wwSort)[0];
+    const posts = media.rows.filter(r => r.syndrome === row.syndrome && overlaps(row.place, r.place)).reduce((n, r) => n + r.n, 0);
+    const sources = (cl ? 1 : 0) + (ww ? 1 : 0) + (posts ? 1 : 0);
+    const strength = (cl && cl.level === "alert" ? 2 : cl ? 1 : 0) + (ww && ww.level === "alert" ? 2 : ww ? 1 : 0) + (posts >= 3 ? 1 : 0);
+    return { ...row, cl, ww, posts, sources, strength };
+  })
+  // Leave out a campus row when a hall on that campus already shows the same illness with as many sources.
+  .filter((row, _, all) => !(row.place.startsWith("campus-") && all.some(r => !r.place.startsWith("campus-") &&
+    r.syndrome === row.syndrome && campusOf(r.place) === row.place.slice(7) && r.sources >= row.sources)))
+  .sort((a, b) => b.sources - a.sources || b.strength - a.strength || (a.place.startsWith("campus-") - b.place.startsWith("campus-")));
+}
+function RESIDENCE_CAMPUS_OF(place) {
+  if (place.startsWith("campus-")) return place.slice(7);
+  return residenceCampus[place] || null;
+}
+
+function renderAgreement(rows) {
+  if (!rows.length) {
+    $("agreeTable").innerHTML = `<div class="quiet"><b>All quiet.</b> No source has flagged a place this week.</div>`;
+    return;
+  }
+  const cell = (on, text, sub) => on
+    ? `<button class="src-cell" data-go="${sub}"><i class="dot-on"></i><span>${text}</span></button>`
+    : `<span class="muted">—</span>`;
+  $("agreeTable").innerHTML = `<table><thead><tr><th>Place</th><th>Illness</th><th>Symptom reports</th><th>Wastewater</th><th>Social posts</th><th>Agreement</th></tr></thead><tbody>` +
+    rows.slice(0, 10).map(r => {
+      const syn = syndromeById[r.syndrome];
+      const agreeCls = r.sources === 3 ? "alert-p" : r.sources === 2 ? "watch-p" : "ok-p";
+      return `<tr>
+        <td>${esc(mediaPlaceName(r.place))}</td>
+        <td><span class="syn"><i class="sw" style="background:${syn.color}"></i>${syn.name}</span></td>
+        <td>${cell(r.cl, r.cl ? `${r.cl.count} reports · ${r.cl.level}` : "", "symptoms")}</td>
+        <td>${cell(r.ww, r.ww ? `${esc(WW_TARGET[r.ww.target].name)} ${r.ww.ratioText.replace(" baseline", "")}` : "", "wastewater")}</td>
+        <td>${cell(r.posts, `${r.posts} post${r.posts === 1 ? "" : "s"}`, "social")}</td>
+        <td><span class="pill ${agreeCls}">${r.sources} of 3</span></td></tr>`;
+    }).join("") + `</tbody></table>`;
+  $("agreeTable").querySelectorAll("[data-go]").forEach(b => b.addEventListener("click", () => showSub(b.dataset.go)));
+}
+
+// Small counts on the sub-tabs, so it's clear where to look.
+function renderBadges({ clusters, wwSignals, media, lineageShift }) {
+  const set = (id, text, alert) => {
+    const b = $("badge-" + id);
+    b.hidden = !text; b.textContent = text || ""; b.className = "badge" + (alert ? " alert" : "");
+  };
+  const alerts = clusters.filter(c => c.level === "alert").length;
+  set("symptoms", clusters.length ? String(clusters.length) : "", alerts > 0);
+  const up = wwSignals.filter(s => s.level);
+  set("wastewater", up.length ? String(up.length) : "", up.some(s => s.level === "alert"));
+  set("genomics", lineageShift ? "shift" : "", false);
+  set("social", media.spike ? "spike" : media.ill24 ? String(media.ill24) : "", media.spike);
+}
+
 function renderRules() {
   $("ruleCount").textContent = RULES.length + " rules";
   $("rulesTable").innerHTML = `<table><thead><tr><th>If the report shows…</th><th>Points</th><th>Why</th><th>Source</th></tr></thead><tbody>` +
@@ -1915,12 +2069,32 @@ function setLive(on, text) { $("liveBadge").className = "live" + (on ? "" : " of
    7. STARTUP — tabs, then form, then data
    ===================================================================== */
 
-function showScreen(name) {
+const SUBS = ["overview", "symptoms", "wastewater", "genomics", "social", "demo"];
+
+// Switch dashboard sub-tab; also remembered, and reachable by link (e.g. …/#wastewater).
+function showSub(name) {
+  if (!SUBS.includes(name)) name = "overview";
+  if ($("screen-dashboard").hidden) showScreen("dashboard", true);
+  document.querySelectorAll("[data-subpanel]").forEach(p => { p.hidden = p.dataset.subpanel !== name; });
+  document.querySelectorAll("[data-sub]").forEach(b => b.setAttribute("aria-selected", String(b.dataset.sub === name)));
+  try { localStorage.setItem("sentinel-sub", name); } catch (e) {}
+  const active = document.querySelector(`[data-sub="${name}"]`);
+  if (active) active.scrollIntoView({ block: "nearest", inline: "nearest" });
+  if (name === "wastewater" && wwMap) setTimeout(() => { wwMap.invalidateSize(); fitWastewaterMap(); }, 0);
+}
+document.querySelectorAll("[data-sub]").forEach(b => b.addEventListener("click", () => { showSub(b.dataset.sub); window.scrollTo(0, 0); }));
+
+function showScreen(name, keepSub) {
   document.querySelectorAll("[data-screen]").forEach(s => { s.hidden = s.dataset.screen !== name; });
   document.querySelectorAll("[data-tab]").forEach(b => b.setAttribute("aria-selected", String(b.dataset.tab === name)));
   try { localStorage.setItem("sentinel-tab", name); } catch (e) {}
   window.scrollTo(0, 0);
   if (name === "dashboard" && wwMap) setTimeout(() => { wwMap.invalidateSize(); fitWastewaterMap(); }, 0);
+  if (name === "dashboard" && !keepSub) {
+    let sub = "overview";
+    try { sub = localStorage.getItem("sentinel-sub") || "overview"; } catch (e) {}
+    showSub(sub);
+  }
 }
 document.querySelectorAll("[data-tab]").forEach(b => b.addEventListener("click", () => showScreen(b.dataset.tab)));
 $("showDemo").addEventListener("change", e => { state.showDemo = e.target.checked; renderDashboard(); });
@@ -1937,10 +2111,11 @@ renderDashboard();
 
 // Open the tab from the link (#dashboard) or the one used last time.
 let startTab = (location.hash || "").slice(1);
-if (!["report", "dashboard", "method"].includes(startTab)) {
+if (SUBS.includes(startTab)) { showScreen("dashboard", true); showSub(startTab); startTab = null; }
+else if (!["report", "dashboard", "method"].includes(startTab)) {
   try { startTab = localStorage.getItem("sentinel-tab") || "report"; } catch (e) { startTab = "report"; }
 }
-showScreen(["report", "dashboard", "method"].includes(startTab) ? startTab : "report");
+if (startTab !== null) showScreen(["report", "dashboard", "method"].includes(startTab) ? startTab : "report");
 
 connectDatabase();
 </script>
