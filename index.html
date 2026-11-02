@@ -640,7 +640,7 @@ const RESIDENCES = [
 
 const SYMPTOMS = [
   { group: "Nose, throat, chest", items: [
-    ["cough", "Cough"], ["sorethroat", "Sore throat"], ["nose", "Runny or stuffy nose"],
+    ["cough", "Cough"], ["sorethroat", "Sore throat"], ["tonsils", "White patches or swelling on tonsils"], ["nose", "Runny or stuffy nose"],
     ["sob", "Shortness of breath"], ["smell", "Loss of taste or smell"], ["ear", "Ear pain"], ["sinus", "Sinus pressure"] ] },
   { group: "Whole body", items: [
     ["fever", "Fever or feeling feverish"], ["chills", "Chills"], ["aches", "Body aches"], ["fatigue", "Fatigue"],
@@ -702,7 +702,7 @@ const knownSymptoms = new Set(SYMPTOMS.flatMap(g => g.items.map(i => i[0])));
    ===================================================================== */
 
 const GI_SYMPTOMS   = ["nausea", "vomiting", "diarrhea", "blood", "cramps"];
-const RESP_SYMPTOMS = ["cough", "sorethroat", "nose", "sob", "smell", "ear", "sinus"];
+const RESP_SYMPTOMS = ["cough", "sorethroat", "tonsils", "nose", "sob", "smell", "ear", "sinus"];
 
 // Build the facts every rule can look at, from one report.
 function getFacts(report) {
@@ -733,6 +733,8 @@ const RULES = [
     points: { bacterial: 3 }, test: f => f.has("sorethroat") && f.fever && !f.has("cough") },
   { label: "Swollen neck glands with fever", source: "Centor criteria (strep throat)", why: "Strep throat, mono",
     points: { bacterial: 2 }, test: f => f.has("glands") && f.fever },
+  { label: "White patches or swelling on tonsils", source: "Centor criteria (strep throat)", why: "Tonsillar exudate: strep throat, also mono",
+    points: { bacterial: 2 }, test: f => f.has("tonsils") },
   { label: "Fever of 102.2°F (39°C) or higher", source: "Common clinical pattern", why: "High fever fits flu and invasive bacteria",
     points: { viral: 1, bacterial: 1 }, test: f => f.highFever },
   { label: "Vomiting and diarrhea, ill 3 days or less", source: "Kaplan criteria (norovirus outbreaks)", why: "Norovirus pattern: sudden and short",
