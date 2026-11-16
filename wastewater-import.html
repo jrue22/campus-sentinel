@@ -40,7 +40,6 @@
   <div class="row">
     <input type="file" id="file" accept=".csv,text/csv">
     <button id="go" disabled>Upload samples</button>
-    <button id="demo" class="ghost" disabled>Add example wastewater data (version 2)</button>
   </div>
 
   <h2>SARS-CoV-2 lineages (sequencing)</h2>
@@ -51,11 +50,10 @@
   <div class="row">
     <input type="file" id="lfile" accept=".csv,text/csv">
     <button id="lgo" disabled>Upload lineages</button>
-    <button id="ldemo" class="ghost" disabled>Add example lineage data (version 2)</button>
   </div>
 
   <div id="log">Ready.</div>
-  <p><a href="./#dashboard">Open the dashboard</a></p>
+  <p><a href="./#home">Open the dashboard</a> · Example data for demos: <a href="demo-data.html">Refresh demo data</a></p>
 </main>
 
 <script src="https://www.gstatic.com/firebasejs/10.12.2/firebase-app-compat.js"></script>
@@ -104,27 +102,7 @@ function parseCsv(text) {
   return { docs, errors };
 }
 
-// Example data: quiet baselines, with a few planted surges that line up with the symptom examples in seed.html.
-function buildDemo() {
-  let seed = 11; const rand = () => (seed = (seed * 16807) % 2147483647) / 2147483647;
-  const base = { sars2: 8000, fluA: 2500, fluB: 1500, rsv: 1800, noro: 20000, rota: 900, salm: 600, crypto: 60 };
-  const surge = { "tempe-hassayampa|noro": 6, "tempe-campus|noro": 3, "dtphx-campus|fluA": 4, "west-campus|salm": 3.5 };
-  const out = [];
-  // Samples every 3 days. Surges start about 9 days ago at half strength and build to their
-  // peak today, so wastewater rises several days before the matching symptom reports in seed.html.
-  for (let ago = 0; ago <= 36; ago += 3) {
-    for (const s of WW_SITES) for (const t of WW_TARGETS) {
-      const m = surge[s.id + "|" + t.id] || 1;
-      const f = ago <= 9 ? 1 + (m - 1) * (1 - ago / 18) : 1;
-      const nonDetect = t.category !== "viral" && f === 1 && rand() < 0.15;   // bacteria and parasites are often not detected
-      out.push({ site: s.id, target: t.id, date: isoDate(ago),
-        copiesPerL: nonDetect ? 0 : Math.round(base[t.id] * f * (0.75 + 0.5 * rand())),
-        pmmovPerL: Math.round(1e6 * (0.7 + 0.6 * rand())),
-        submittedAt: new Date().toISOString(), demo: true });
-    }
-  }
-  return out;
-}
+// (Example data now comes from demo-data.html.)
 
 // ---------- SARS-CoV-2 lineages ----------
 // Example data carries a version in its id, so a new version uploads even if the old one is still stored.
@@ -161,41 +139,9 @@ function parseLineageCsv(text) {
   return { docs, errors };
 }
 
-// Example lineage data: weekly samples for 8 weeks at 4 sites. XFG reaches Tempe first and
-// takes over fast; Downtown follows more slowly and has more minor lineages; West Valley is
-// mid-takeover now; Polytechnic keeps a different, stable mix (a separate introduction).
-// Each site has its own starting mix and speed, as real sites would.
-function buildLineageDemo() {
-  let seed = 23; const rand = () => (seed = (seed * 16807) % 2147483647) / 2147483647;
-  const SITES = {
-    //               week XFG hits half its max, takeover speed, max XFG share, starting mix, minor lineages (shown as Other)
-    "tempe-campus": { mid: 3.5, speed: 1.8, max: 0.85, mix: { "LP.8.1": 0.55, "NB.1.8.1": 0.27, "XEC": 0.18 }, minor: { "BA.2.86": 0.04 } },
-    "dtphx-campus": { mid: 5.0, speed: 0.9, max: 0.70, mix: { "LP.8.1": 0.38, "NB.1.8.1": 0.32, "XEC": 0.30 }, minor: { "BA.2.86": 0.05, "KP.3.1.1": 0.05 } },
-    "west-campus":  { mid: 6.5, speed: 1.2, max: 0.65, mix: { "LP.8.1": 0.68, "NB.1.8.1": 0.20, "XEC": 0.12 }, minor: { "BA.2.86": 0.03 } },
-    "poly-campus":  { mid: 99,  speed: 1.0, max: 0,    mix: { "NB.1.8.1": 0.58, "LP.8.1": 0.30, "XEC": 0.12 }, minor: { "BA.2.86": 0.04 } },
-  };
-  const out = [];
-  for (const [site, c] of Object.entries(SITES)) {
-    const minorTotal = Object.values(c.minor).reduce((a, b) => a + b, 0);
-    for (let w = 0; w < 8; w++) {
-      const ago = (7 - w) * 7;
-      const xfg = c.max / (1 + Math.exp(-(w - c.mid) * c.speed));                 // logistic takeover
-      const rest = 1 - xfg - minorTotal;
-      const lineages = [{ lineage: "XFG", share: xfg }];
-      for (const k in c.mix) lineages.push({ lineage: k, share: rest * c.mix[k] * (0.85 + 0.3 * rand()) });
-      for (const k in c.minor) lineages.push({ lineage: k, share: c.minor[k] });
-      const total = lineages.reduce((a, x) => a + x.share, 0);
-      out.push({ site, date: isoDate(ago), demo: true, submittedAt: new Date().toISOString(),
-        // Freyja shares usually add up to a bit under 1 (some reads aren't assigned): scale to 0.97.
-        lineages: lineages.filter(x => x.share >= 0.005).map(x => ({ lineage: x.lineage, share: Math.round(1000 * x.share / total * 0.97) / 1000 })) });
-    }
-  }
-  return out;
-}
-
 // ---------- Firebase setup and sign-in ----------
 let db = null, auth = null;
-function setButtons(enabled) { ["go", "demo", "lgo", "ldemo"].forEach(id => { $(id).disabled = !enabled; }); }
+function setButtons(enabled) { ["go", "lgo"].forEach(id => { $(id).disabled = !enabled; }); }
 
 (function start() {
   const c = window.FIREBASE_CONFIG;
@@ -265,7 +211,6 @@ $("go").addEventListener("click", () => {
   if (!docs.length) return log("No rows found.");
   upload(docs);
 });
-$("demo").addEventListener("click", () => upload(buildDemo()));
 
 $("lfile").addEventListener("change", e => { const f = e.target.files[0]; if (f) f.text().then(t => { $("lcsv").value = t; }); });
 $("lgo").addEventListener("click", () => {
@@ -274,7 +219,6 @@ $("lgo").addEventListener("click", () => {
   if (!docs.length) return log("No rows found.");
   upload(docs, "lineages", lineageId);
 });
-$("ldemo").addEventListener("click", () => upload(buildLineageDemo(), "lineages", lineageId));
 </script>
 </body>
 </html>

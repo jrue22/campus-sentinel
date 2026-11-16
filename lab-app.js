@@ -9,7 +9,7 @@
      6 Patient view
      7 Researcher view (de-identified)
      8 Printed reports
-     9 Sign-in, roles and startup
+     9 Roles (from session.js) and startup
    ===================================================================== */
 "use strict";
 
@@ -17,39 +17,8 @@
    1. HELPERS
    ===================================================================== */
 const $ = id => document.getElementById(id);
-const C = window.LAB_CONFIG, TH = C.thresholds;
-const TARGETS = window.LAB_TARGETS, ORGS = window.LAB_ORGANISMS, DRUGS = window.LAB_DRUGS;
-const PLACES = window.LAB_PLACES, CAMPUSES = window.LAB_CAMPUSES, SYN = window.LAB_SYNDROMES;
-const KIND_NAMES = { pcr: "PCR panel", culture: "Culture + susceptibility", viral_genome: "Viral genome", bacterial_genome: "Bacterial genome" };
-
-function esc(v) { return String(v ?? "").replace(/[&<>"']/g, c => ({ "&": "&amp;", "<": "&lt;", ">": "&gt;", '"': "&quot;", "'": "&#39;" }[c])); }
-function localDate(when) {
-  const d = new Date(when); if (isNaN(d)) return null;
-  return d.getFullYear() + "-" + String(d.getMonth() + 1).padStart(2, "0") + "-" + String(d.getDate()).padStart(2, "0");
-}
-const todayStr = () => localDate(new Date());
-const DATE_RE = /^\d{4}-\d{2}-\d{2}$/;
-const toUTC = s => { const [y, m, d] = s.split("-").map(Number); return Date.UTC(y, m - 1, d); };
-const addDays = (s, n) => new Date(toUTC(s) + n * 864e5).toISOString().slice(0, 10);
-const daysBetween = (a, b) => Math.round((toUTC(b) - toUTC(a)) / 864e5);
-function mmwrWeek(str) {   // CDC epidemiological week (same as index.html)
-  const t = toUTC(str);
-  const startOf = y => { const jan1 = new Date(Date.UTC(y, 0, 1)); const dow = jan1.getUTCDay(); return Date.UTC(y, 0, dow <= 3 ? 1 - dow : 8 - dow); };
-  let year = Number(str.slice(0, 4)), start = startOf(year);
-  if (t < start) { year -= 1; start = startOf(year); } else if (t >= startOf(year + 1)) { year += 1; start = startOf(year); }
-  return year + "-W" + String(Math.floor((t - start) / (7 * 864e5)) + 1).padStart(2, "0");
-}
-const fmtDate = s => s ? new Date(s.length === 10 ? s + "T12:00:00" : s).toLocaleDateString("en-US", { month: "short", day: "numeric", year: "numeric" }) : "";
-const fmtTime = s => s ? new Date(s).toLocaleString("en-US", { month: "short", day: "numeric", hour: "numeric", minute: "2-digit" }) : "";
-const placeName = id => (PLACES[id] || [id || "Unknown"])[0];
-const placeCampus = id => (PLACES[id] || [])[1] || null;
-const ageOf = p => p && p.birthYear ? new Date().getFullYear() - p.birthYear : null;
-const ageBand = a => a == null ? "unknown" : a < 18 ? "under 18" : a <= 21 ? "18-21" : a <= 25 ? "22-25" : a <= 34 ? "26-34" : "35+";
-const synTag = id => SYN[id] ? `<span class="syn"><i class="sw" style="background:${SYN[id][1]}"></i>${SYN[id][0]}</span>` : "";
-const plural = (n, w, pl) => `${n} ${n === 1 ? w : (pl || w + "s")}`;
-const uid = () => Math.random().toString(36).slice(2, 10) + Date.now().toString(36).slice(-4);
-const catName = c => ({ viral: "Viral", bacterial: "Bacterial", parasitic: "Parasitic", fungal: "Fungal" }[c] || "Undetermined");
-
+// Helpers and interpretation rules come from lab-core.js (shared with the home page).
+const { C, TH, TARGETS, ORGS, DRUGS, PLACES, CAMPUSES, SYN, KIND_NAMES, esc, localDate, todayStr, DATE_RE, toUTC, addDays, daysBetween, mmwrWeek, fmtDate, fmtTime, placeName, placeCampus, ageOf, ageBand, synTag, plural, uid, catName, analysisContext, interpret, wastewaterLineage, setLineages, betaLactamCategories, geneCategories, hitConfirmed, alleleDistance, genomeClusters, statusOf, deidentify } = window.LabCore;
 /* =====================================================================
    2. DATA STORE
    The rest of the app only calls these functions (like the paper's
@@ -67,7 +36,7 @@ const state = {
 
 const store = {
   async addPatient(p) {
-    if (state.mode === "demo") { state.patients.push(p); return render(); }
+    if (state.mode === "demo") { state.patients.push(p); saveDemo(); return render(); }
     await state.db.collection("lab_patients").doc(p.id).set(p);
   },
   async updatePatient(id, fields) {
@@ -79,14 +48,14 @@ const store = {
       if (state.mode === "demo") mine.forEach(r => { r.ownerEmail = fields.ownerEmail; });
       else await commitInBatches(mine.map(r => b => b.update(state.db.collection("lab_results").doc(r.id), { ownerEmail: fields.ownerEmail })));
     }
-    if (state.mode === "demo") render();
+    if (state.mode === "demo") { saveDemo(); render(); }
   },
   async addResults(list) {
-    if (state.mode === "demo") { state.results.push(...list); return render(); }
+    if (state.mode === "demo") { state.results.push(...list); saveDemo(); return render(); }
     await commitInBatches(list.map(r => b => b.set(state.db.collection("lab_results").doc(r.id), r)));
   },
   async updateResult(id, fields) {
-    if (state.mode === "demo") { Object.assign(state.results.find(r => r.id === id), fields); return render(); }
+    if (state.mode === "demo") { Object.assign(state.results.find(r => r.id === id), fields); saveDemo(); return render(); }
     await state.db.collection("lab_results").doc(id).update(fields);
   },
   async saveDeid(id, doc) {
@@ -114,226 +83,6 @@ async function commitInBatches(ops) {          // Firestore allows 500 writes pe
   for (let i = 0; i < ops.length; i += 400) {
     const b = state.db.batch(); ops.slice(i, i + 400).forEach(op => op(b)); await b.commit();
   }
-}
-
-/* =====================================================================
-   3. INTERPRETATION RULES
-   interpret(result, ctx) turns one result into:
-     finding     one line for tables ("Influenza A detected")
-     level       positive / negative / discuss
-     syndrome, category, pathogens    (the same ids as the surveillance dashboard)
-     flags       [{level: "alert" | "discuss" | "info", text}]
-                 "discuss" = the result needs a clinician's judgment before signing
-                 (like the paper's "need discussion" list for the Molecular Biology Board)
-     plain       plain-language sentences for the patient
-   ctx holds what a rule needs from other results: the same patient's other
-   tests, genome clusters, and wastewater lineages.
-   ===================================================================== */
-
-// Built once per render: everything rules need to look across results.
-function analysisContext(results, patients) {
-  const byPatient = {};
-  results.forEach(r => (byPatient[r.patientId] = byPatient[r.patientId] || []).push(r));
-  const genomes = results.filter(r => r.kind === "bacterial_genome" && r.data && r.data.profile && Object.keys(r.data.profile).length);
-  return { results, patients: patients || [], byPatient, genomes, patientOf: id => (patients || []).find(p => p.id === id) };
-}
-
-function interpret(r, ctx) {
-  const f = { pcr: interpretPcr, culture: interpretCulture, viral_genome: interpretViral, bacterial_genome: interpretBacterial }[r.kind];
-  const out = f ? f(r, ctx) : { finding: "Unknown test type", level: "discuss", flags: [{ level: "discuss", text: "Unknown result type." }], plain: [] };
-  out.needsDiscussion = out.flags.some(x => x.level === "discuss");
-  out.level = out.needsDiscussion && out.level !== "negative" ? "discuss" : out.level;
-  return out;
-}
-
-// --- PCR panels ---
-function interpretPcr(r) {
-  const d = r.data || {}, flags = [];
-  const hits = (d.targets || []).filter(t => t.result === "detected").sort((a, b) => (a.ct ?? 99) - (b.ct ?? 99));
-  const name = id => (TARGETS[id] || { name: id }).name;
-  const tested = (d.targets || []).length;
-  if (!hits.length) return { finding: "Not detected", level: "negative", syndrome: null, category: null, pathogens: [], flags,
-    plain: [`None of the ${tested} germs this ${d.panel === "gi" ? "stomach" : "respiratory"} test looks for were found.`] };
-  hits.forEach(t => {
-    if (t.ct != null && t.ct > TH.lateCt) flags.push({ level: "discuss", text: `<b>${esc(name(t.id))} detected late</b> (Ct ${t.ct} &gt; ${TH.lateCt}): very little genetic material. It could be early or late in illness, or contamination; consider repeating the test.` });
-  });
-  if (hits.length > 1) flags.push({ level: "discuss", text: `<b>Co-detection:</b> ${hits.map(t => esc(name(t.id)) + (t.ct != null ? ` (Ct ${t.ct})` : "")).join(", ")}. Decide which is most likely causing the illness; the lowest Ct usually has the most genetic material.` });
-  const main = TARGETS[hits[0].id] || {};
-  return { finding: hits.map(t => name(t.id)).join(" + ") + " detected", level: "positive", syndrome: main.syndrome, category: main.category,
-    pathogens: hits.map(t => name(t.id)), flags,
-    plain: [`The test found ${hits.map(t => name(t.id)).join(" and ")}.`, hits.length > 1 ? "Finding more than one germ is common; your clinician decides which one matters." : ""] };
-}
-
-// --- Cultures with antibiotic susceptibility (AST) ---
-function interpretCulture(r) {
-  const d = r.data || {}, flags = [], org = ORGS[d.organism] || {};
-  const ast = d.ast || [];
-  if (!d.organism || /no growth/i.test(d.organism)) return { finding: "No growth", level: "negative", flags, pathogens: [], plain: ["Nothing grew in the culture."] };
-  const nonS = ast.filter(a => a.interp === "R" || a.interp === "I");
-  const cats = [...new Set(nonS.map(a => DRUGS[a.drug]).filter(Boolean))];
-  if (cats.length >= TH.mdrCategories)
-    flags.push({ level: "alert", text: `<b>Multidrug resistant (MDR):</b> not susceptible in ${cats.length} drug categories (${cats.map(esc).join("; ")}). Definition: Magiorakos et al. 2012.` });
-  if (/Escherichia|Klebsiella/.test(d.organism) && ast.some(a => ["ceftriaxone", "cefepime"].includes(a.drug) && a.interp === "R"))
-    flags.push({ level: "alert", text: "<b>Possible ESBL producer:</b> resistant to 3rd-generation cephalosporins. Confirm, and consider contact precautions." });
-  if (ast.some(a => DRUGS[a.drug] === "carbapenems" && a.interp !== "S"))
-    flags.push({ level: "alert", text: "<b>Carbapenem not susceptible:</b> notify infection prevention and public health right away." });
-  if (d.organism === "Streptococcus pyogenes" && ast.some(a => DRUGS[a.drug] === "macrolides" && a.interp === "R"))
-    flags.push({ level: "info", text: "<b>Macrolide resistance:</b> azithromycin and erythromycin are unlikely to work for this patient." });
-  if (!ast.length) flags.push({ level: "info", text: "No susceptibility results were reported." });
-  const ok = ast.filter(a => a.interp === "S").length;
-  return { finding: (org.short || d.organism) + (cats.length >= TH.mdrCategories ? " (MDR)" : ""), level: "positive",
-    syndrome: org.syndrome || null, category: org.category || "bacterial", pathogens: [d.organism], flags,
-    plain: [`The culture grew ${org.short || d.organism}.`, ast.length ? `The lab tested ${ast.length} antibiotics: ${ok} should work against it${nonS.length ? ` and ${nonS.length} may not` : ""}.` : ""] };
-}
-
-// --- Viral genomes (e.g. Nextclade output) ---
-function interpretViral(r, ctx) {
-  const d = r.data || {}, flags = [];
-  if (d.coverage != null && d.coverage < TH.minCoverage)
-    flags.push({ level: "discuss", text: `<b>Low coverage:</b> ${d.coverage}% of the genome was read (minimum ${TH.minCoverage}%). The lineage may be wrong; consider re-sequencing.` });
-  if (d.qcStatus === "bad") flags.push({ level: "discuss", text: "<b>Nextclade quality check failed</b> (status: bad). Do not report the lineage without review." });
-  else if (d.qcStatus === "mediocre") flags.push({ level: "info", text: "Nextclade quality check: mediocre." });
-  if (d.frameShifts > 0) flags.push({ level: "info", text: `${plural(d.frameShifts, "frame shift")} found; these are often sequencing errors.` });
-  // Integration with surveillance: is this lineage also in the campus wastewater?
-  const p = ctx.patientOf(r.patientId), ww = wastewaterLineage(d.lineage, placeCampus(p && p.residence));
-  if (ww) flags.push({ level: "info", text: `<b>Matches wastewater:</b> ${esc(d.lineage)} was ${Math.round(ww.share * 100)}% of SARS-CoV-2 in ${esc(ww.siteName)} on ${fmtDate(ww.date)}.` });
-  const same = ctx.results.filter(x => x.kind === "viral_genome" && x.id !== r.id && x.data && x.data.lineage === d.lineage &&
-    Math.abs(daysBetween(x.collected, r.collected)) <= 14).length;
-  if (same) flags.push({ level: "info", text: `${plural(same, "other patient")} had ${esc(d.lineage)} within 14 days.` });
-  const virusIsFlu = /influenza/i.test(d.virus || "");
-  return { finding: `${d.virus || "Virus"} ${d.lineage || d.clade || "lineage unknown"}`, level: "positive",
-    syndrome: "ili", category: "viral", pathogens: [d.virus || "virus"], flags,
-    plain: [`The lab read the genetic code of the ${virusIsFlu ? "flu virus" : "virus"} from your sample. It belongs to the ${esc(d.lineage || d.clade || "unknown")} ${virusIsFlu ? "clade" : "lineage"}.`,
-      ww ? `This version is also the one most often found in your campus wastewater, which means it is circulating widely.` : "",
-      "This helps public health track which versions are spreading. It usually does not change your treatment."] };
-}
-
-// Latest wastewater sample's share of a lineage at the campus-wide sewer (from the public "lineages" data).
-function wastewaterLineage(lineage, campus) {
-  if (!lineage || !campus || !state.lineages.length || !window.WW_SITES) return null;
-  const site = window.WW_SITES.find(s => s.campus === campus && !(s.residences || []).length);
-  if (!site) return null;
-  const latest = state.lineages.filter(x => x.site === site.id).sort((a, b) => b.date.localeCompare(a.date))[0];
-  if (!latest) return null;
-  const total = latest.lineages.reduce((n, x) => n + Number(x.share || 0), 0) || 1;
-  const hit = latest.lineages.find(x => x.lineage === lineage);
-  return hit ? { share: Number(hit.share) / total, date: latest.date, siteName: site.name } : null;
-}
-
-// --- Bacterial genomes (AMRFinderPlus + mlst + cgMLST allele profile) ---
-// Drug categories a beta-lactamase gene is expected to affect, by gene family.
-function betaLactamCategories(gene) {
-  const g = gene.toLowerCase();
-  if (/bla(kpc|ndm|vim|imp|oxa-48|oxa-181|oxa-232)/.test(g))
-    return ["penicillins", "1st/2nd-generation cephalosporins", "3rd/4th-generation cephalosporins", "carbapenems"];
-  if (/bla(ctx-m|cmy|dha|shv-(2|5|12))/.test(g)) return ["penicillins", "1st/2nd-generation cephalosporins", "3rd/4th-generation cephalosporins"];
-  return ["penicillins"];
-}
-function geneCategories(hit) {
-  const cats = new Set();
-  String(hit.cls || "").toUpperCase().split("/").forEach(cl => {
-    if (cl === "BETA-LACTAM") betaLactamCategories(hit.gene).forEach(c => cats.add(c));
-    (window.LAB_GENE_CLASSES[cl] || []).forEach(c => cats.add(c));
-  });
-  return [...cats];
-}
-const hitConfirmed = h => (h.identity ?? 100) >= TH.minIdentity && (h.coverage ?? 100) >= TH.minGeneCoverage;
-
-// Allele differences between two cgMLST profiles: loci where both have a call and the calls differ.
-function alleleDistance(a, b) {
-  let diff = 0, compared = 0;
-  for (const locus in a) {
-    if (!(locus in b) || a[locus] == null || b[locus] == null) continue;
-    compared++; if (a[locus] !== b[locus]) diff++;
-  }
-  return { diff, compared };
-}
-
-function interpretBacterial(r, ctx) {
-  const d = r.data || {}, flags = [], amr = (d.amr || []).filter(h => (h.type || "AMR") === "AMR");
-  const confirmed = amr.filter(hitConfirmed), partial = amr.filter(h => !hitConfirmed(h));
-  partial.forEach(h => flags.push({ level: "discuss", text: `<b>Partial match for ${esc(h.gene)}</b> (${h.identity}% identity, ${h.coverage}% coverage; minimum ${TH.minIdentity}% and ${TH.minGeneCoverage}%). The gene may be broken or a relative; check the culture result.` }));
-  const esbl = confirmed.filter(h => /bla(ctx-m|cmy|dha)/i.test(h.gene));
-  if (esbl.length) flags.push({ level: "alert", text: `<b>ESBL/AmpC gene:</b> ${esbl.map(h => esc(h.gene)).join(", ")}. Expect resistance to 3rd-generation cephalosporins.` });
-  const carb = confirmed.filter(h => /bla(kpc|ndm|vim|imp|oxa-48)/i.test(h.gene));
-  if (carb.length) flags.push({ level: "alert", text: `<b>Carbapenemase gene:</b> ${carb.map(h => esc(h.gene)).join(", ")}. Notify infection prevention right away.` });
-  if (d.species === "Escherichia coli" && String(d.st) === "131") flags.push({ level: "info", text: "<b>ST131:</b> a globally spread E. coli lineage that is often multidrug resistant." });
-
-  // Genotype-phenotype check against the same patient's culture of the same species.
-  const culture = (ctx.byPatient[r.patientId] || []).filter(x => x.kind === "culture" && x.data && x.data.organism === d.species)
-    .sort((a, b) => Math.abs(daysBetween(a.collected, r.collected)) - Math.abs(daysBetween(b.collected, r.collected)))[0];
-  if (culture) {
-    const ast = culture.data.ast || [];
-    const predicted = new Map();
-    confirmed.forEach(h => geneCategories(h).forEach(c => predicted.set(c, [...(predicted.get(c) || []), h.gene])));
-    predicted.forEach((genes, cat) => {
-      const tested = ast.filter(a => DRUGS[a.drug] === cat);
-      if (tested.length && tested.every(a => a.interp === "S"))
-        flags.push({ level: "discuss", text: `<b>Genome and culture disagree:</b> ${genes.map(esc).join(", ")} predicts resistance to ${esc(cat)}, but the culture says susceptible (${tested.map(a => esc(a.drug)).join(", ")}). Check before choosing treatment.` });
-    });
-    const unexplained = [...new Set(ast.filter(a => a.interp !== "S" && !predicted.has(DRUGS[a.drug])).map(a => DRUGS[a.drug]).filter(Boolean))];
-    if (unexplained.length) flags.push({ level: "info", text: `Resistance to ${unexplained.map(esc).join("; ")} is not explained by a known gene (another mechanism, or a gene missing from the database).` });
-    if (predicted.size && !flags.some(x => x.text.includes("disagree"))) flags.push({ level: "info", text: "Genome and culture agree on every drug category the genes predict." });
-  }
-
-  // Outbreak check: closest other isolate of the same species.
-  let closest = null;
-  if (d.profile) ctx.genomes.filter(g => g.id !== r.id && g.data.species === d.species).forEach(g => {
-    const dist = alleleDistance(d.profile, g.data.profile);
-    if (dist.compared && (!closest || dist.diff < closest.diff)) closest = { ...dist, other: g };
-  });
-  if (closest && closest.diff <= TH.clusterAlleles) {
-    const op = ctx.patientOf(closest.other.patientId);
-    flags.push({ level: "alert", text: `<b>Likely same strain as ${esc(closest.other.patientCode)}'s isolate</b> (${closest.diff} of ${closest.compared} loci differ; cutoff ${TH.clusterAlleles})${op ? ", " + esc(placeName(op.residence)) : ""}. Possible outbreak: look for a shared source.` });
-  } else if (closest) flags.push({ level: "info", text: `Nearest other ${esc(d.species)} isolate differs at ${closest.diff} of ${closest.compared} loci: not the same outbreak strain.` });
-
-  const org = ORGS[d.species] || {};
-  return { finding: `${org.short || d.species || "Bacterium"}${d.st ? " ST" + d.st : ""}${confirmed.length ? " · " + plural(confirmed.length, "resistance gene") : ""}`,
-    level: "positive", syndrome: org.syndrome || null, category: "bacterial", pathogens: [d.species], flags, cluster: closest && closest.diff <= TH.clusterAlleles,
-    plain: [`The lab read the genetic code of the ${org.short || "bacteria"} from your sample.`,
-      confirmed.length ? `It carries ${plural(confirmed.length, "gene")} that can make some antibiotics work less well. Your clinician has used this to choose your treatment.` : "It carries no known antibiotic-resistance genes.",
-      closest && closest.diff <= TH.clusterAlleles ? "It closely matches bacteria from another case, so public health may ask about places you ate or visited." : ""] };
-}
-
-// Groups of isolates linked by <= cutoff allele differences (single linkage), per species.
-function genomeClusters(genomes) {
-  const out = [];
-  const bySpecies = {};
-  genomes.forEach(g => (bySpecies[g.data.species] = bySpecies[g.data.species] || []).push(g));
-  Object.entries(bySpecies).forEach(([species, list]) => {
-    const parent = list.map((_, i) => i);
-    const find = i => parent[i] === i ? i : (parent[i] = find(parent[i]));
-    for (let i = 0; i < list.length; i++) for (let j = i + 1; j < list.length; j++) {
-      const d = alleleDistance(list[i].data.profile, list[j].data.profile);
-      if (d.compared && d.diff <= TH.clusterAlleles) parent[find(i)] = find(j);
-    }
-    const groups = {};
-    list.forEach((g, i) => (groups[find(i)] = groups[find(i)] || []).push(g));
-    Object.values(groups).filter(g => g.length > 1).forEach(members => out.push({ species, members }));
-  });
-  return out;
-}
-
-// What a result looks like on a worklist: status + whether it needs discussion.
-function statusOf(r, it) {
-  if (r.status === "signed") return { key: "signed", label: "Signed", cls: "ok-p" };
-  if (it.needsDiscussion) return { key: "discuss", label: "Needs discussion", cls: "watch-p" };
-  return { key: "ready", label: "Ready to sign", cls: "plain-p" };
-}
-
-// De-identified copy for researchers: no name, code, email, exact date or residence.
-function deidentify(r, p, it) {
-  const d = r.data || {};
-  const nonS = r.kind === "culture" ? [...new Set((d.ast || []).filter(a => a.interp !== "S").map(a => DRUGS[a.drug]).filter(Boolean))] : [];
-  return {
-    kind: r.kind, week: mmwrWeek(r.collected), ageBand: ageBand(ageOf(p)), campus: placeCampus(p && p.residence) || "unknown",
-    specimen: r.specimen || "", syndrome: it.syndrome || "", category: it.category || "", positive: it.level !== "negative",
-    pathogens: it.pathogens || [], organism: d.organism || d.species || "", st: d.st || "",
-    nonSusceptible: nonS, mdr: nonS.length >= TH.mdrCategories,
-    genes: (d.amr || []).filter(hitConfirmed).map(h => h.gene), lineage: d.lineage || "", coverage: d.coverage ?? null,
-    profile: r.kind === "bacterial_genome" ? (d.profile || null) : null,
-    demo: !!r.demo, signedWeek: mmwrWeek(todayStr()),
-  };
 }
 
 /* =====================================================================
@@ -550,6 +299,7 @@ function renderPatients() {
       <div class="row"><button class="btn small" id="npAdd">Add patient</button><span id="npMsg" class="hint"></span></div>
       ${state.mode === "live" ? `<p class="hint">Use made-up patients only: this class project is not approved for real health information.</p>` : ""}
     </div>
+    ${state.mode === "demo" ? `<div class="panel"><h3>Demo data</h3><p class="hint">Your demo changes (signed results, imports) are kept in this browser tab. Start over with the original example patients:</p><div class="row"><button class="btn small ghost" id="demoReset">Reset the demo lab</button></div></div>` : ""}
     ${state.mode === "live" ? `<div class="panel"><h3>Demo data</h3><p class="hint">Add the 21 synthetic patients to the database (so a classmate can sign in as one), or remove them afterwards.</p>
       <div class="row"><button class="btn small ghost" id="demoLoad">Add demo patients</button><button class="btn small ghost" id="demoRemove">Remove demo data</button><span class="hint" id="demoMsg"></span></div></div>` : ""}`;
 }
@@ -780,7 +530,7 @@ function renderOutbreaks() {
     <div class="panel"><div class="panel-head"><h3>Positive tests by place</h3><span class="eyebrow">Last 14 days · distinct patients</span></div>
       ${posRows.length ? `<div class="table-box"><table><thead><tr><th>Pathogen</th><th>Residence</th><th>Syndrome</th><th style="text-align:center">Patients</th><th>Codes</th></tr></thead><tbody>${
         posRows.map(c => `<tr><td>${esc(c.pathogen)}</td><td>${esc(placeName(c.place))}</td><td>${synTag(c.syndrome) || "—"}</td><td class="n">${c.n}</td><td class="muted">${[...c.patients].map(esc).join(", ")}</td></tr>`).join("")}</tbody></table></div>` : `<p class="muted">No positive tests in the last 14 days.</p>`}
-      <p class="hint">Lab-confirmed counts complement the anonymous symptom reports on the <a href="./#overview">surveillance dashboard</a>: same places, same syndromes.</p></div>
+      <p class="hint">Lab-confirmed counts complement the anonymous symptom reports on the <a href="./#home">dashboard</a>: same places, same syndromes.</p></div>
     <div class="panel"><div class="panel-head"><h3>Bacterial genome clusters</h3><span class="eyebrow">cgMLST allele differences</span></div>
       ${clusters.length ? clusters.map(cl => `<div class="result positive"><div class="result-top"><h3><i>${esc(cl.species)}</i> · ${plural(cl.members.length, "isolate")}${cl.members[0].data.st ? " · ST" + esc(cl.members[0].data.st) : ""}</h3><span class="pill alert-p">likely outbreak</span></div>
           <p>${cl.members.map(g => { const p = state.patients.find(x => x.id === g.patientId); return `<b>${esc(g.patientCode)}</b> (${esc(placeName(p && p.residence))}, ${esc(g.collected)})`; }).join(" · ")}</p>
@@ -818,13 +568,14 @@ function distanceMatrices() {
    ===================================================================== */
 function renderPatientView() {
   const p = state.mode === "demo" ? state.patients.find(x => x.id === state.demoPatientId)
-    : state.patients.find(x => x.ownerEmail === (state.user && state.user.email || "").toLowerCase());
+    : state.patients.find(x => x.ownerEmail === ((Session.current() || {}).email || ""));
   const rs = p ? state.results.filter(r => r.patientId === p.id && r.status === "signed").sort(byNewest) : [];
   const pending = p && state.mode === "demo" ? state.results.filter(r => r.patientId === p.id && r.status !== "signed").length : 0;
   $("view-patient").innerHTML = !p
-    ? `<div class="panel"><h2>No results yet</h2><p>We couldn't find lab results linked to ${esc(state.user ? state.user.email : "this account")}.</p>
+    ? `<div class="panel"><h2>No results yet</h2><p>We couldn't find lab results linked to ${esc((Session.current() || {}).email || "this account")}.</p>
         <p class="hint">Results appear here after your clinician reviews them. If you expected some, ask the clinic to link this email to your record.</p></div>`
     : `<div style="display:grid;gap:16px">
+      ${state.mode === "demo" ? `<label class="demo-pick">Demo: viewing as <select id="demoPatient">${state.patients.map(x => `<option value="${esc(x.id)}"${x.id === p.id ? " selected" : ""}>${esc(x.code)} · ${esc(x.name)}</option>`).join("")}</select></label>` : ""}
       <div class="panel"><div class="panel-head"><div><span class="eyebrow">My lab results</span><h2>${esc(p.name)}</h2></div>
         ${rs.length ? `<button class="btn small" data-print="patient-self">Print my results</button>` : ""}</div>
         <p class="muted">Results appear here after your clinician has reviewed them.${pending ? ` ${plural(pending, "result is", "results are")} still being reviewed.` : ""}</p></div>
@@ -931,7 +682,7 @@ function printReport(kind) {
   if (kind === "clinician") html = clinicianReport(state.patients.find(p => p.id === state.patientId));
   else if (kind === "patient") html = patientReport(state.patients.find(p => p.id === state.patientId));
   else if (kind === "patient-self") html = patientReport(state.mode === "demo" ? state.patients.find(p => p.id === state.demoPatientId)
-    : state.patients.find(x => x.ownerEmail === (state.user.email || "").toLowerCase()));
+    : state.patients.find(x => x.ownerEmail === ((Session.current() || {}).email || "")));
   else if (kind === "research") html = researchReport();
   $("printArea").innerHTML = `<div class="rpt">${html}</div>`;
   window.print();
@@ -989,20 +740,20 @@ function researchReport() {
    ===================================================================== */
 function currentUserName() {
   if (state.mode === "demo") return "Dr. Demo Clinician";
-  return state.user ? (state.user.displayName || state.user.email) : "unknown";
-}
-function roleFor(email) {
-  const e = String(email || "").toLowerCase(), has = list => (list || []).map(x => x.toLowerCase()).includes(e);
-  return has(C.clinicians) ? "clinician" : has(C.researchers) ? "researcher" : "patient";
+  const c = Session.current();
+  return c ? c.name || c.email : "unknown";
 }
 function dbError(e) {
   return e && e.code === "permission-denied"
     ? "The database refused. Check that this account is listed in firestore.rules (isClinician) and that the rules are published."
     : "Couldn't save (" + (e && (e.code || e.message) || "unknown error") + ").";
 }
-function getConfig() { if (window.FIREBASE_CONFIG) return window.FIREBASE_CONFIG; try { return firebaseConfig; } catch (e) { return null; } } // eslint-disable-line no-undef
+
+// In the demo, keep this tab's changes (signing, imports) so the home page sees them too.
+function saveDemo() { if (state.mode === "demo") LabCore.saveDemo({ patients: state.patients, results: state.results }); }
 
 function render() {
+  setLineages(state.lineages);
   state.ctx = analysisContext(state.results, state.patients);
   state.its = new Map(state.results.map(r => [r.id, interpret(r, state.ctx)]));
   const role = state.role;
@@ -1010,29 +761,9 @@ function render() {
   $("view-clinician").hidden = role !== "clinician";
   $("view-patient").hidden = role !== "patient";
   $("view-researcher").hidden = role !== "researcher";
-  $("demoBanner").hidden = state.mode !== "demo";
-  document.querySelectorAll("[data-role]").forEach(b => b.setAttribute("aria-pressed", String(b.dataset.role === role)));
-  $("demoPatientWrap").hidden = !(state.mode === "demo" && role === "patient");
   if (role === "clinician") renderClinician();
   if (role === "patient") renderPatientView();
   if (role === "researcher") renderResearcher();
-  $("whoText").textContent = state.mode === "demo" ? "Demo" : state.user ? `${state.user.email} · ${role}` : "Not signed in";
-}
-
-function startDemo(role) {
-  stopListening();
-  const { patients, results } = LAB_DEMO.build(todayStr());
-  Object.assign(state, { mode: "demo", role, patients, results, deid: [], ctab: "worklist", worklistFilter: "open" });
-  const withSigned = patients.filter(p => results.some(r => r.patientId === p.id && r.status === "signed"));
-  state.demoPatientId = withSigned[0].id;
-  $("demoPatient").innerHTML = patients.map(p => `<option value="${esc(p.id)}">${esc(p.code)} · ${esc(p.name)}</option>`).join("");
-  $("demoPatient").value = state.demoPatientId;
-  if (role === "clinician") showCtab("worklist"); else render();
-  window.scrollTo(0, 0);
-}
-function exitDemo() {
-  Object.assign(state, { mode: state.user ? "live" : null, role: null, patients: [], results: [], deid: [] });
-  if (state.user) onUser(state.user); else render();
 }
 
 function stopListening() { state.unsub.forEach(u => u()); state.unsub = []; }
@@ -1043,38 +774,36 @@ function listen(query, onDocs) {
       : "Live updates stopped (" + err.code + "). Reload to reconnect."; }));
 }
 
-function onUser(user) {
-  state.user = user;
-  $("signIn").hidden = !!user || !state.auth; $("signOut").hidden = !user;
-  if (state.mode === "demo") return render();          // stay in the demo until "Exit demo"
+// Called whenever the role changes (sign-in, sign-out, demo role switch at the top right).
+let lastKey = null;
+function onSession(s) {
+  const key = s ? [s.mode, s.role, s.email].join("|") : "";
+  if (key === lastKey) return render();
+  lastKey = key;
   stopListening();
-  if (!user) { Object.assign(state, { mode: null, role: null, patients: [], results: [], deid: [] }); return render(); }
-  const email = (user.email || "").toLowerCase(), role = roleFor(email), db = state.db;
-  Object.assign(state, { mode: "live", role, patients: [], results: [], deid: [] });
-  if (role === "clinician") {
-    listen(db.collection("lab_patients"), d => { state.patients = d; });
-    listen(db.collection("lab_results"), d => { state.results = d; });
-    listen(db.collection("lab_deid"), d => { state.deid = d; });
-  } else if (role === "researcher") {
-    listen(db.collection("lab_deid"), d => { state.deid = d; });
-  } else {   // patient: only their own record and their own signed results (the rules check the same thing)
-    listen(db.collection("lab_patients").where("ownerEmail", "==", email), d => { state.patients = d; });
-    listen(db.collection("lab_results").where("ownerEmail", "==", email).where("status", "==", "signed"), d => { state.results = d; });
+  // Students see the patient view of the lab: their own results.
+  const role = s ? (s.role === "student" ? "patient" : s.role) : null;
+  if (!s) { Object.assign(state, { mode: null, role: null, patients: [], results: [], deid: [] }); return render(); }
+  if (s.mode === "demo") {
+    const d = LabCore.loadDemo(LAB_DEMO.build);
+    Object.assign(state, { mode: "demo", role, patients: d.patients, results: d.results, deid: [] });
+    const withSigned = d.patients.filter(p => d.results.some(r => r.patientId === p.id && r.status === "signed"));
+    state.demoPatientId = s.demoPatientId && d.patients.some(p => p.id === s.demoPatientId) ? s.demoPatientId : withSigned[0].id;
+  } else {
+    const db = state.db, email = s.email;
+    Object.assign(state, { mode: "live", role, patients: [], results: [], deid: [] });
+    if (role === "clinician") {
+      listen(db.collection("lab_patients"), d => { state.patients = d; });
+      listen(db.collection("lab_results"), d => { state.results = d; });
+      listen(db.collection("lab_deid"), d => { state.deid = d; });
+    } else if (role === "researcher") {
+      listen(db.collection("lab_deid"), d => { state.deid = d; });
+    } else {   // only their own record and their own signed results (the rules check the same thing)
+      listen(db.collection("lab_patients").where("ownerEmail", "==", email), d => { state.patients = d; });
+      listen(db.collection("lab_results").where("ownerEmail", "==", email).where("status", "==", "signed"), d => { state.results = d; });
+    }
   }
   if (role === "clinician") showCtab(state.ctab); else render();
-}
-
-async function signIn() {
-  if (!state.auth) return;
-  const provider = new firebase.auth.GoogleAuthProvider();
-  try { await state.auth.signInWithPopup(provider); }
-  catch (err) {
-    if (err.code === "auth/popup-blocked" || err.code === "auth/operation-not-supported-in-this-environment") return state.auth.signInWithRedirect(provider);
-    $("problem").hidden = false;
-    $("problem").textContent = "Sign-in failed: " + ({ "auth/unauthorized-domain": "this website isn't on Firebase's list. Add it under Authentication > Settings > Authorized domains.",
-      "auth/operation-not-allowed": "Google sign-in is turned off. Turn it on under Authentication > Sign-in method.",
-      "auth/popup-closed-by-user": "the sign-in window was closed before finishing." }[err.code] || err.message);
-  }
 }
 
 // One click handler for the whole page (buttons are re-drawn often).
@@ -1082,12 +811,7 @@ document.addEventListener("click", e => {
   const t = e.target.closest("button, tr[data-open], tr[data-patient], tr[data-jump]");
   if (!t) return;
   const ds = t.dataset;
-  if (t.id === "signIn" || t.id === "signIn2") signIn();
-  else if (t.id === "signOut") state.auth && state.auth.signOut();
-  else if (ds.demo) startDemo(ds.demo);
-  else if (t.id === "exitDemo") exitDemo();
-  else if (ds.role) { state.role = ds.role; if (ds.role === "clinician") showCtab(state.ctab === "patient" ? "worklist" : state.ctab); else render(); }
-  else if (ds.ctab) { if (ds.ctab === "import") state.importKind = state.importKind || "pcr"; showCtab(ds.ctab); }
+  if (ds.ctab) { if (ds.ctab === "import") state.importKind = state.importKind || "pcr"; showCtab(ds.ctab); }
   else if (ds.wl) { state.worklistFilter = ds.wl; renderWorklist(); }
   else if (ds.open) openResult(ds.open);
   else if (ds.patient) { state.patientId = ds.patient; showCtab("patient"); window.scrollTo(0, 0); }
@@ -1106,27 +830,21 @@ document.addEventListener("click", e => {
     store.updatePatient(state.patientId, { ownerEmail: v }).then(() => { if ($("ownerMsg")) $("ownerMsg").textContent = "Saved."; }, err => { $("ownerMsg").textContent = dbError(err); });
   }
   else if (t.id === "rxCsv") downloadResearchCsv();
+  else if (t.id === "demoReset") { LabCore.resetDemo(); lastKey = null; onSession(Session.current()); }
   else if (t.id === "demoLoad") { $("demoMsg").textContent = "Adding…"; store.loadDemoIntoDatabase().then(() => { $("demoMsg").textContent = "Added."; }, err => { $("demoMsg").textContent = dbError(err); }); }
   else if (t.id === "demoRemove") { if (!confirm("Remove every demo patient and result from the database?")) return; store.removeDemoFromDatabase().then(() => {}, err => { $("demoMsg").textContent = dbError(err); }); }
 });
 document.addEventListener("keydown", e => { if (e.key === "Enter" && e.target.matches("tr[data-open], tr[data-patient]")) e.target.click(); });
-$("demoPatient").addEventListener("change", e => { state.demoPatientId = e.target.value; render(); });
+document.addEventListener("change", e => {
+  if (e.target.id === "demoPatient") { state.demoPatientId = e.target.value; Session.setDemoPatient(e.target.value); render(); }
+});
 
 (function start() {
-  const cfg = getConfig();
-  const ready = window.firebase && cfg && cfg.projectId && !String(cfg.projectId).startsWith("PASTE");
-  if (ready) {
-    if (!firebase.apps.length) firebase.initializeApp(cfg);
-    state.db = firebase.firestore(); state.auth = firebase.auth();
-    state.auth.onAuthStateChanged(onUser);
+  Session.init();
+  state.db = Session.db();
+  if (state.db) {
     // Public wastewater lineages (last 70 days), to compare clinic genomes with community sewage.
     state.db.collection("lineages").where("date", ">=", addDays(todayStr(), -70)).onSnapshot(s => { state.lineages = s.docs.map(d => d.data()); if (state.role) render(); }, () => {});
-  } else {
-    $("signIn2").disabled = true;
-    $("signInNote").textContent = window.firebase ? "Sign-in isn't set up (firebase-config.js is missing). The demo still works." : "The Firebase library didn't load, so sign-in is unavailable. The demo still works.";
-    render();
-  }
-  const want = (location.hash || "").slice(1);            // e.g. lab.html#demo-clinician opens the demo directly
-  if (/^demo-(clinician|patient|researcher)$/.test(want)) startDemo(want.slice(5));
-  else render();
+  } else if (window.DemoData) state.lineages = DemoData.lineages();     // offline demo: the built-in example lineages
+  Session.onChange(onSession);
 })();

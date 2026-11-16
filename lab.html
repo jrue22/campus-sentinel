@@ -3,7 +3,7 @@
 <head>
 <meta charset="utf-8">
 <meta name="viewport" content="width=device-width, initial-scale=1, viewport-fit=cover">
-<title>Sentinel Lab Portal</title>
+<title>Sentinel Lab</title>
 <meta name="description" content="Campus Sentinel Lab portal: lab and genome results for patients, clinicians and researchers.">
 <meta name="robots" content="noindex">
 <meta name="theme-color" content="#8C1D40">
@@ -31,102 +31,21 @@
 <link rel="preconnect" href="https://fonts.googleapis.com">
 <link rel="preconnect" href="https://fonts.gstatic.com" crossorigin>
 <link rel="stylesheet" href="https://fonts.googleapis.com/css2?family=Archivo:wdth,wght@75..100,500..800&family=IBM+Plex+Sans:wght@400;500;600&family=IBM+Plex+Mono:wght@400;500&display=swap">
+<link rel="stylesheet" href="app.css?v=1">
 <style>
-  /* ---------- Design tokens: the same as index.html ---------- */
-  :root {
-    --bg: #F6F4F5; --surface: #FFFFFF; --surface-2: #EFEAEC; --ink: #1F1A1C; --ink-2: #5E5459; --line: #DDD5D9;
-    --accent: #8C1D40; --accent-ink: #FFFFFF; --gold: #FFC627; --gold-ink: #3A2C00;
-    --alert: #B8330C; --alert-bg: #FCEBE4; --watch: #8A5D00; --watch-bg: #FFF3D1; --ok: #2F7A4F; --ok-bg: #E4F3EA;
-    --s-ili: #6B46C1; --s-resp: #2B6CB0; --s-gi: #0F766E; --s-skin: #B7791F; --s-neuro: #C53030; --s-other: #8A8286;
-    --f-display: "Archivo", "Arial Narrow", system-ui, sans-serif;
-    --f-body: "IBM Plex Sans", system-ui, -apple-system, "Segoe UI", sans-serif;
-    --f-mono: "IBM Plex Mono", ui-monospace, "SF Mono", Menlo, monospace;
-  }
-  @media (prefers-color-scheme: dark) {
-    :root:not([data-theme="light"]) {
-      color-scheme: dark;
-      --bg: #151113; --surface: #1F1A1C; --surface-2: #2A2326; --ink: #F2EDEF; --ink-2: #B5ABB0; --line: #3B3337;
-      --accent: #E57A99; --accent-ink: #1A0A10;
-      --alert: #FF8B66; --alert-bg: #3B1F16; --watch: #F2C14E; --watch-bg: #372D12; --ok: #71CF99; --ok-bg: #173226;
-      --s-ili: #A78BFA; --s-resp: #63A4E8; --s-gi: #2DD4BF; --s-skin: #E0B04F; --s-neuro: #F87171; --s-other: #A0979B;
-    }
-  }
-  :root[data-theme="dark"] {
-    color-scheme: dark;
-    --bg: #151113; --surface: #1F1A1C; --surface-2: #2A2326; --ink: #F2EDEF; --ink-2: #B5ABB0; --line: #3B3337;
-    --accent: #E57A99; --accent-ink: #1A0A10;
-    --alert: #FF8B66; --alert-bg: #3B1F16; --watch: #F2C14E; --watch-bg: #372D12; --ok: #71CF99; --ok-bg: #173226;
-    --s-ili: #A78BFA; --s-resp: #63A4E8; --s-gi: #2DD4BF; --s-skin: #E0B04F; --s-neuro: #F87171; --s-other: #A0979B;
-  }
-
-  /* ---------- Base (same as index.html) ---------- */
-  * { box-sizing: border-box; }
-  html { -webkit-text-size-adjust: 100%; }
-  [hidden] { display: none !important; }
-  body { background: var(--bg); color: var(--ink); font: 15px/1.55 var(--f-body); margin: 0;
-    padding: env(safe-area-inset-top, 0px) 16px calc(32px + env(safe-area-inset-bottom, 0px)); }
-  .wrap { max-width: 1040px; margin: 0 auto; }
-  h1, h2, h3 { font-family: var(--f-display); font-stretch: 85%; line-height: 1.15; margin: 0; text-wrap: balance; }
-  h2 { font-size: 1.5rem; font-weight: 800; }
-  h3 { font-size: 1.05rem; font-weight: 700; }
-  p { margin: 0; }
-  a { color: var(--accent); }
-  .muted { color: var(--ink-2); }
-  .mono { font-family: var(--f-mono); font-variant-numeric: tabular-nums; }
-  .eyebrow { font: 500 0.72rem/1.2 var(--f-mono); letter-spacing: 0.08em; text-transform: uppercase; color: var(--ink-2); }
-  button, input, select, textarea { font: inherit; color: inherit; }
-  :focus-visible { outline: 2px solid var(--accent); outline-offset: 2px; }
-
-  .appbar { display: flex; align-items: center; justify-content: space-between; gap: 12px; flex-wrap: wrap; padding-block: 20px 14px; border-bottom: 1px solid var(--line); }
-  .brand { display: flex; align-items: center; gap: 12px; }
-  .mark { width: 40px; height: 40px; border-radius: 10px; background: var(--accent); display: grid; place-items: center; flex: none; }
-  .mark svg { width: 24px; height: 24px; }
-  .brand h1 { font-size: 1.5rem; font-weight: 800; }
-  .brand .sub { font-size: 0.82rem; color: var(--ink-2); }
-  .tag { font: 500 0.72rem/1 var(--f-mono); background: var(--gold); color: var(--gold-ink); padding: 6px 8px; border-radius: 4px; }
-  .who { display: flex; align-items: center; gap: 10px; flex-wrap: wrap; font-size: 0.88rem; }
-
-  main { padding-block: 20px; display: grid; gap: 20px; }
-  .banner { padding: 10px 12px; border-radius: 8px; background: var(--watch-bg); font-size: 0.88rem; border: 1px solid var(--line); display: flex; gap: 10px 16px; align-items: center; flex-wrap: wrap; }
-  .panel { background: var(--surface); border: 1px solid var(--line); border-radius: 12px; padding: 16px; display: grid; gap: 12px; min-width: 0; }
-  .panel-head { display: flex; justify-content: space-between; align-items: baseline; gap: 10px; flex-wrap: wrap; }
-  .grid2 { display: grid; grid-template-columns: repeat(auto-fit, minmax(240px, 1fr)); gap: 14px; }
-  .btn { background: var(--accent); color: var(--accent-ink); border: 0; border-radius: 10px; padding: 12px 16px; font-weight: 600; cursor: pointer; min-height: 44px; }
-  .btn.small { padding: 7px 12px; min-height: 36px; font-size: 0.88rem; border-radius: 8px; }
-  .btn.ghost { background: var(--surface-2); color: var(--ink); }
-  .btn[disabled] { opacity: 0.5; cursor: not-allowed; }
-  label.field { display: grid; gap: 4px; font-size: 0.88rem; font-weight: 500; }
-  select, input[type="date"], input[type="number"], input[type="text"], input[type="email"], textarea {
-    width: 100%; padding: 9px 11px; border: 1px solid var(--line); border-radius: 8px; background: var(--bg); min-height: 42px; }
-  textarea { min-height: 8em; font: 0.82rem/1.45 var(--f-mono); }
-  .hint { font-size: 0.84rem; color: var(--ink-2); }
-  .err { color: var(--alert); font-size: 0.88rem; }
-  .row { display: flex; gap: 8px 10px; flex-wrap: wrap; align-items: center; }
-
+  /* Shared look is in app.css. Below: the lab page only. */
+  .badge { background: var(--alert); color: #fff; }
+  tr.clickable { cursor: pointer; } tr.clickable:hover td { background: var(--surface-2); }
+  .demo-pick { display: flex; gap: 8px; align-items: center; flex-wrap: wrap; font-size: 0.88rem; }
+  .demo-pick select { width: auto; min-height: 34px; padding: 4px 8px; }
   .tabs { display: flex; gap: 6px; overflow-x: auto; scrollbar-width: none; padding-bottom: 2px; }
   .tabs button { flex: none; border: 1px solid var(--line); background: var(--surface); color: var(--ink-2); border-radius: 999px; padding: 7px 14px; font-weight: 500; font-size: 0.88rem; cursor: pointer; min-height: 38px; display: inline-flex; gap: 6px; align-items: center; }
   .tabs button[aria-selected="true"] { background: var(--accent); border-color: var(--accent); color: var(--accent-ink); }
-  .badge { font: 600 0.7rem/1 var(--f-mono); padding: 3px 6px; border-radius: 999px; background: var(--alert); color: #fff; }
   .seg { display: inline-flex; flex-wrap: wrap; gap: 3px; padding: 3px; border: 1px solid var(--line); border-radius: 18px; background: var(--surface); max-width: 100%; }
   .seg button { border: 0; background: none; border-radius: 999px; padding: 5px 12px; font-size: 0.84rem; cursor: pointer; color: var(--ink-2); min-height: 32px; }
   .seg button[aria-pressed="true"] { background: var(--accent); color: var(--accent-ink); }
 
-  .kpis { display: grid; grid-template-columns: repeat(auto-fit, minmax(150px, 1fr)); gap: 1px; background: var(--line); border: 1px solid var(--line); border-radius: 12px; overflow: hidden; }
-  .kpi { background: var(--surface); padding: 14px 16px; display: grid; gap: 4px; align-content: start; }
-  .kpi .num { font: 700 1.8rem/1 var(--f-display); font-variant-numeric: tabular-nums; }
-  .table-box { overflow-x: auto; }
-  table { border-collapse: collapse; width: 100%; font-size: 0.86rem; }
-  th, td { padding: 8px 10px; text-align: left; border-bottom: 1px solid var(--line); vertical-align: top; }
-  th { font: 500 0.7rem var(--f-mono); letter-spacing: 0.06em; text-transform: uppercase; color: var(--ink-2); white-space: nowrap; }
-  td.n { text-align: center; font-family: var(--f-mono); font-variant-numeric: tabular-nums; }
   tr.clickable { cursor: pointer; } tr.clickable:hover td { background: var(--surface-2); }
-  .pill { font: 600 0.7rem/1 var(--f-mono); letter-spacing: 0.05em; text-transform: uppercase; padding: 5px 8px; border-radius: 999px; white-space: nowrap; display: inline-block; }
-  .pill.alert-p { background: var(--alert-bg); color: var(--alert); }
-  .pill.watch-p { background: var(--watch-bg); color: var(--watch); }
-  .pill.ok-p { background: var(--ok-bg); color: var(--ok); }
-  .pill.plain-p { background: var(--surface-2); color: var(--ink-2); }
-  .syn { display: inline-flex; align-items: center; gap: 6px; white-space: nowrap; }
-  .sw { width: 10px; height: 10px; border-radius: 2px; display: inline-block; flex: none; }
 
   /* Result cards */
   .result { border: 1px solid var(--line); border-left: 5px solid var(--line); border-radius: 10px; padding: 14px 16px; display: grid; gap: 10px; background: var(--surface); }
@@ -147,11 +66,7 @@
   .chipline { display: flex; gap: 6px; flex-wrap: wrap; }
   .chip { font: 500 0.78rem var(--f-mono); padding: 3px 8px; border-radius: 6px; background: var(--surface-2); }
   .chip.warn { background: var(--watch-bg); }
-  .quiet { background: var(--ok-bg); border-radius: 10px; padding: 14px 16px; }
 
-  .landing { display: grid; gap: 16px; grid-template-columns: repeat(auto-fit, minmax(280px, 1fr)); }
-  .landing .panel { align-content: start; }
-  .role-list { margin: 0; padding-left: 18px; display: grid; gap: 6px; font-size: 0.92rem; }
   .heat text { font: 11px var(--f-mono); }
   .patient-head { display: grid; grid-template-columns: repeat(auto-fit, minmax(160px, 1fr)); gap: 8px 16px; }
   .patient-head div { display: grid; gap: 2px; }
@@ -182,67 +97,28 @@
 <body>
 <div class="wrap">
   <header class="appbar">
-    <div class="brand">
-      <div class="mark" aria-hidden="true">
-        <svg viewBox="0 0 24 24" fill="none" stroke="#FFC627" stroke-width="2.4" stroke-linecap="round" stroke-linejoin="round"><path d="M9 3h6M10 3v6l-5 9a2 2 0 0 0 1.8 3h10.4A2 2 0 0 0 19 18l-5-9V3"/><path d="M7.5 15h9"/></svg>
-      </div>
-      <div>
-        <h1>Sentinel Lab Portal</h1>
-        <div class="sub">Lab and genome results for patients, clinicians and researchers</div>
-      </div>
-    </div>
-    <div class="who">
-      <span class="tag">Class project · synthetic data only</span>
-      <span id="whoText" class="muted">Not signed in</span>
-      <button class="btn small" id="signIn" hidden>Sign in with Google</button>
-      <button class="btn small ghost" id="signOut" hidden>Sign out</button>
-      <a href="./#overview">Surveillance dashboard</a>
-    </div>
+    <a class="brand" href="./#home">
+      <div class="mark" aria-hidden="true"><svg viewBox="0 0 24 24" fill="none" stroke="#FFC627" stroke-width="2.2" stroke-linecap="round" stroke-linejoin="round"><path d="M2 13h4l2-6 4 12 3-9 2 3h5"/></svg></div>
+      <div><h1>Campus Sentinel</h1><div class="sub">Lab results</div></div>
+    </a>
+    <nav class="topnav" aria-label="Main">
+      <a href="./#home" data-nav="home">Home</a>
+      <a href="./#report" data-nav="report">Report symptoms</a>
+      <a href="lab.html" data-nav="lab" aria-current="page">Lab</a>
+    </nav>
+    <div class="session" id="session"></div>
   </header>
 
   <main>
-    <div class="banner" id="demoBanner" hidden>
-      <b>Demo mode:</b> <span>made-up patients, kept in this browser tab only.</span>
-      <span>View as</span>
-      <span class="seg" id="roleSeg" role="group" aria-label="View as">
-        <button type="button" data-role="patient">Patient</button>
-        <button type="button" data-role="clinician">Clinician</button>
-        <button type="button" data-role="researcher">Researcher</button>
-      </span>
-      <label id="demoPatientWrap" class="row" hidden>Patient <select id="demoPatient" style="width:auto;min-height:34px;padding:4px 8px"></select></label>
-      <button class="btn small ghost" id="exitDemo">Exit demo</button>
-    </div>
     <p class="banner" id="problem" hidden></p>
 
-    <!-- Signed out -->
+    <!-- No role yet -->
     <section id="view-landing" hidden>
-      <div class="landing">
-        <div class="panel">
-          <span class="eyebrow">Sign in</span>
-          <h2>Your lab results, explained</h2>
-          <p>Patients see their own results after a clinician reviews them, and can print them. Clinicians import results, review flagged ones and sign reports. Researchers see de-identified totals.</p>
-          <div class="row"><button class="btn" id="signIn2">Sign in with Google</button></div>
-          <p class="hint" id="signInNote"></p>
-        </div>
-        <div class="panel">
-          <span class="eyebrow">No account needed</span>
-          <h2>Explore the demo</h2>
-          <p>21 made-up patients from the same outbreaks as the surveillance dashboard's example data: norovirus, flu, Salmonella, strep, SARS-CoV-2 and a drug-resistant E. coli.</p>
-          <div class="row">
-            <button class="btn ghost" data-demo="clinician">As a clinician</button>
-            <button class="btn ghost" data-demo="patient">As a patient</button>
-            <button class="btn ghost" data-demo="researcher">As a researcher</button>
-          </div>
-        </div>
-        <div class="panel">
-          <span class="eyebrow">Who sees what</span>
-          <ul class="role-list">
-            <li><b>Patient:</b> only their own results, only once signed, in plain language.</li>
-            <li><b>Clinician:</b> every patient, the worklist, imports, outbreak analysis and technical reports.</li>
-            <li><b>Researcher:</b> de-identified results only: week instead of date, age band, campus, no names or codes. Counts under 5 are hidden.</li>
-          </ul>
-          <p class="hint">The database rules enforce these limits, not just this page.</p>
-        </div>
+      <div class="panel" style="max-width:60ch">
+        <span class="eyebrow">Lab results</span>
+        <h2>Sign in or try the demo first</h2>
+        <p class="muted">Students see their own reviewed results, clinicians review and sign, researchers see de-identified totals.</p>
+        <div class="row"><a class="btn" href="./#start">Go to the start page</a></div>
       </div>
     </section>
 
@@ -268,8 +144,20 @@
 
     <!-- Researcher -->
     <section id="view-researcher" hidden></section>
+    <footer class="site-foot">
+      <nav aria-label="More"><a href="./#method">How it works</a><a href="./#live">Live demo QR codes</a><a href="demo-data.html">Refresh demo data</a></nav>
+      <p>Synthetic data only. Class project (ASU BMI 461), not an official ASU service or a clinical laboratory system.</p>
+    </footer>
   </main>
 </div>
+
+<nav class="tabbar" aria-label="Main">
+  <div class="inner">
+    <a href="./#home" data-nav="home"><svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><path d="M3 11l9-7 9 7"/><path d="M5 10v10h14V10"/></svg>Home</a>
+    <a href="./#report" data-nav="report"><svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round"><rect x="5" y="3" width="14" height="18" rx="2"/><path d="M9 8h6M9 12h6M9 16h3"/></svg>Report</a>
+    <a href="lab.html" data-nav="lab" aria-current="page"><svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><path d="M9 3h6M10 3v6l-5 9a2 2 0 0 0 1.8 3h10.4A2 2 0 0 0 19 18l-5-9V3"/></svg>Lab</a>
+  </div>
+</nav>
 
 <!-- Filled in just before printing; the only thing that prints -->
 <div id="printArea"></div>
@@ -279,8 +167,11 @@
 <script src="https://www.gstatic.com/firebasejs/10.12.2/firebase-firestore-compat.js"></script>
 <script src="firebase-config.js?v=5"></script>
 <script src="wastewater-config.js?v=5"></script>
-<script src="lab-config.js?v=1"></script>
-<script src="lab-demo.js?v=1"></script>
-<script src="lab-app.js?v=1"></script>
+<script src="lab-config.js?v=2"></script>
+<script src="lab-demo.js?v=2"></script>
+<script src="lab-core.js?v=1"></script>
+<script src="demo-data.js?v=1"></script>
+<script src="session.js?v=1"></script>
+<script src="lab-app.js?v=2"></script>
 </body>
 </html>

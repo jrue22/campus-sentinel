@@ -3,9 +3,10 @@ rules_version = '2';
 // Security rules for Campus Sentinel.
 // Anyone may READ reports (the dashboard is public) and CREATE a report,
 // but only if it has exactly the expected shape. Wastewater samples can be
-// read by anyone but added only by signed-in uploaders on the list below. Nobody can edit or
-// delete reports from the website; the project owner can still delete
-// them in the Firebase console.
+// read by anyone but added only by signed-in uploaders on the list below. Nobody can edit
+// reports from the website, and only EXAMPLE data (demo: true) can be deleted, by an
+// uploader, so demo-data.html can refresh it. The project owner can still delete anything
+// in the Firebase console.
 service cloud.firestore {
   match /databases/{database}/documents {
 
@@ -43,7 +44,9 @@ service cloud.firestore {
     match /reports/{reportId} {
       allow read: if true;
       allow create: if validReport(request.resource.data);
-      allow update, delete: if false;
+      allow update: if false;
+      // Only example data can be deleted, and only by an uploader (demo-data.html refreshes it).
+      allow delete: if isLabUploader() && resource.data.demo == true;
     }
 
     // Only these signed-in Google accounts may upload wastewater results.
@@ -53,7 +56,7 @@ service cloud.firestore {
     function isLabUploader() {
       return request.auth != null
         && request.auth.token.email_verified == true
-        && request.auth.token.email in ['drewgordon9@gmail.com'];
+        && request.auth.token.email in ['YOUR-EMAIL@asu.edu'];
     }
 
     // One SARS-CoV-2 sequencing result: lineage shares for one site and date (from Freyja).
@@ -69,8 +72,8 @@ service cloud.firestore {
 
     match /lineages/{sampleId} {
       allow read: if true;
-      allow create: if isLabUploader() && validLineages(request.resource.data);
-      allow update, delete: if false;
+      allow create, update: if isLabUploader() && validLineages(request.resource.data);
+      allow delete: if isLabUploader() && resource.data.demo == true;
     }
 
     // Demo feed posts: anyone in class can add a short, anonymous post. Nobody can edit or delete
@@ -85,20 +88,22 @@ service cloud.firestore {
     match /media_posts/{postId} {
       allow read: if true;
       allow create: if validPost(request.resource.data);
-      allow update, delete: if false;
+      allow update: if false;
+      allow delete: if isLabUploader();          // clearing the class's demo posts after a demo
     }
 
-    // NLP results: written only by the worker, which uses the Firebase Admin SDK
-    // (the Admin SDK bypasses these rules). Browsers can only read them.
+    // NLP results: written by the worker, which uses the Firebase Admin SDK (it bypasses these
+    // rules). From a browser, only an uploader can write or delete EXAMPLE records (demo-data.html).
     match /media_extracted/{postId} {
       allow read: if true;
-      allow write: if false;
+      allow create, update: if isLabUploader() && request.resource.data.demo == true;
+      allow delete: if isLabUploader() && resource.data.demo == true;
     }
 
     match /wastewater/{sampleId} {
       allow read: if true;
-      allow create: if isLabUploader() && validWastewater(request.resource.data);
-      allow update, delete: if false;
+      allow create, update: if isLabUploader() && validWastewater(request.resource.data);
+      allow delete: if isLabUploader() && resource.data.demo == true;
     }
 
     // =================================================================
@@ -115,10 +120,10 @@ service cloud.firestore {
       return request.auth != null && request.auth.token.email_verified == true;
     }
     function isClinician() {
-      return signedIn() && request.auth.token.email in ['drewgordon9@gmail.com'];
+      return signedIn() && request.auth.token.email in ['YOUR-EMAIL@asu.edu'];
     }
     function isResearcher() {
-      return signedIn() && request.auth.token.email in ['drewgordon9@gmail.com'];
+      return signedIn() && request.auth.token.email in ['YOUR-EMAIL@asu.edu'];
     }
     function ownsIt() {
       return signedIn() && resource.data.ownerEmail == request.auth.token.email;

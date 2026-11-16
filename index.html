@@ -18,153 +18,80 @@
   CAMPUS SENTINEL — syndromic surveillance for a university campus network
   -----------------------------------------------------------------------
   Written in plain HTML + CSS + JavaScript. No frameworks, no build step.
-  The file has three parts:
-    1. <style>   how it looks (colors are "tokens" defined once at the top)
-    2. HTML      the three screens: Report, Dashboard, Method
+  Shared with the other pages: app.css (look), session.js (who is signed in,
+  or which demo role), lab-config.js + lab-core.js (lab rules), demo-data.js.
+  This file has three parts:
+    1. <style>   styles for this page only
+    2. HTML      the screens: Start, Student home, Clinician home, Researcher
+                 home (tabbed dashboard), Report, Live demo, How it works
     3. <script>  the logic, split into numbered sections:
                  1 Config (campuses, residences, symptoms)
                  2 Classifier (symptoms -> syndrome + pathogen category)
                  3 Cluster detection (who is sick, where, how many)
                  4 Data storage (Firebase Firestore database)
                  5 Survey form
-                 6 Dashboard rendering (6b: research export)
-                 7 Startup
+                 6 Dashboard rendering (6b: research export, 6c: role home pages)
+                 7 Startup (which page to show for the address and role)
 -->
 <link rel="preconnect" href="https://fonts.googleapis.com">
 <link rel="preconnect" href="https://fonts.gstatic.com" crossorigin>
 <link rel="stylesheet" href="https://fonts.googleapis.com/css2?family=Archivo:wdth,wght@75..100,500..800&family=IBM+Plex+Sans:wght@400;500;600&family=IBM+Plex+Mono:wght@400;500&display=swap">
 <!-- Leaflet: the map library used for the wastewater map -->
 <link rel="stylesheet" href="https://cdnjs.cloudflare.com/ajax/libs/leaflet/1.9.4/leaflet.min.css">
+<link rel="stylesheet" href="app.css?v=1">
 <style>
-  /* ---------- Design tokens (light theme) ---------- */
-  :root {
-    --bg: #F6F4F5;
-    --surface: #FFFFFF;
-    --surface-2: #EFEAEC;
-    --ink: #1F1A1C;
-    --ink-2: #5E5459;
-    --line: #DDD5D9;
-    --accent: #8C1D40;       /* maroon */
-    --accent-ink: #FFFFFF;
-    --gold: #FFC627;
-    --gold-ink: #3A2C00;
-    --alert: #B8330C;  --alert-bg: #FCEBE4;
-    --watch: #8A5D00;  --watch-bg: #FFF3D1;
-    --ok: #2F7A4F;     --ok-bg: #E4F3EA;
-    /* one color per syndrome, used in chart, chips and heat map */
-    --s-ili: #6B46C1;
-    --s-resp: #2B6CB0;
-    --s-gi: #0F766E;
-    --s-skin: #B7791F;
-    --s-neuro: #C53030;
-    --s-other: #8A8286;
-    /* SARS-CoV-2 lineage colors: categorical slots in fixed order, checked for color-blind safety */
-    --l1: #2a78d6; --l2: #eb6834; --l3: #1baf7a; --l4: #eda100; --l5: #6250d6; --l-other: #A9A3A6;
-    --f-display: "Archivo", "Arial Narrow", system-ui, sans-serif;
-    --f-body: "IBM Plex Sans", system-ui, -apple-system, "Segoe UI", sans-serif;
-    --f-mono: "IBM Plex Mono", ui-monospace, "SF Mono", Menlo, monospace;
-  }
-  /* ---------- Dark theme: only the tokens change ---------- */
-  @media (prefers-color-scheme: dark) {
-    :root:not([data-theme="light"]) {
-      color-scheme: dark;
-      --bg: #151113; --surface: #1F1A1C; --surface-2: #2A2326; --ink: #F2EDEF; --ink-2: #B5ABB0; --line: #3B3337;
-      --accent: #E57A99; --accent-ink: #1A0A10; --gold: #FFC627; --gold-ink: #3A2C00;
-      --alert: #FF8B66; --alert-bg: #3B1F16; --watch: #F2C14E; --watch-bg: #372D12; --ok: #71CF99; --ok-bg: #173226;
-      --s-ili: #A78BFA; --s-resp: #63A4E8; --s-gi: #2DD4BF; --s-skin: #E0B04F; --s-neuro: #F87171; --s-other: #A0979B;
-      --l1: #3987e5; --l2: #d95926; --l3: #199e70; --l4: #c98500; --l5: #9085e9; --l-other: #6E676B;
-    }
-  }
-  :root[data-theme="dark"] {
-    color-scheme: dark;
-    --bg: #151113; --surface: #1F1A1C; --surface-2: #2A2326; --ink: #F2EDEF; --ink-2: #B5ABB0; --line: #3B3337;
-    --accent: #E57A99; --accent-ink: #1A0A10; --gold: #FFC627; --gold-ink: #3A2C00;
-    --alert: #FF8B66; --alert-bg: #3B1F16; --watch: #F2C14E; --watch-bg: #372D12; --ok: #71CF99; --ok-bg: #173226;
-    --s-ili: #A78BFA; --s-resp: #63A4E8; --s-gi: #2DD4BF; --s-skin: #E0B04F; --s-neuro: #F87171; --s-other: #A0979B;
-      --l1: #3987e5; --l2: #d95926; --l3: #199e70; --l4: #c98500; --l5: #9085e9; --l-other: #6E676B;
-  }
+  /* Shared look (tokens, header, panels, tables, forms) is in app.css. Below: this page only. */
 
-  /* ---------- Base ---------- */
-  * { box-sizing: border-box; }
-  html { -webkit-text-size-adjust: 100%; }
-  [hidden] { display: none !important; }
-  img { max-width: 100%; }
-  body {
-    background: var(--bg); color: var(--ink);
-    font: 15px/1.55 var(--f-body);
-    margin: 0;
-    padding: env(safe-area-inset-top, 0px) 16px calc(84px + env(safe-area-inset-bottom, 0px));
-  }
-  .wrap { max-width: 980px; margin: 0 auto; }
-  h1, h2, h3 { font-family: var(--f-display); font-stretch: 85%; line-height: 1.15; margin: 0; text-wrap: balance; }
-  h2 { font-size: 1.5rem; font-weight: 800; }
-  h3 { font-size: 1.05rem; font-weight: 700; }
-  p { margin: 0; }
-  .muted { color: var(--ink-2); }
-  .mono { font-family: var(--f-mono); font-variant-numeric: tabular-nums; }
-  .eyebrow { font: 500 0.72rem/1.2 var(--f-mono); letter-spacing: 0.08em; text-transform: uppercase; color: var(--ink-2); }
-  button, input, select { font: inherit; color: inherit; }
-  :focus-visible { outline: 2px solid var(--accent); outline-offset: 2px; }
+  body[data-view="start"] #modeBanner, body[data-view="report"] #modeBanner, body[data-view="method"] #modeBanner { display: none; }
+  /* ---------- Start page ---------- */
+  .hero { display: grid; gap: 10px; max-width: 64ch; padding-block: 8px 4px; }
+  .hero h2 { font-size: clamp(1.6rem, 4.5vw, 2.3rem); }
+  .start-card h3 { font-size: 1.3rem; }
+  .role-pick { display: grid; gap: 8px; }
+  .role-pick button { display: grid; gap: 2px; text-align: left; padding: 12px 14px; border: 1px solid var(--line); border-radius: 10px;
+    background: var(--bg); cursor: pointer; }
+  .role-pick button:hover { border-color: var(--accent); }
+  .role-pick b { font-size: 1rem; } .role-pick span { font-size: 0.86rem; color: var(--ink-2); }
+  .start-report { text-align: center; }
 
-  /* ---------- App header ---------- */
-  .appbar { display: flex; align-items: flex-end; justify-content: space-between; gap: 12px; flex-wrap: wrap; padding-block: 20px 14px; border-bottom: 1px solid var(--line); }
-  .brand { display: flex; align-items: center; gap: 12px; }
-  .mark { width: 40px; height: 40px; border-radius: 10px; background: var(--accent); display: grid; place-items: center; flex: none; }
-  .mark svg { width: 24px; height: 24px; }
-  .brand h1 { font-size: 1.6rem; font-weight: 800; letter-spacing: -0.01em; }
-  .brand .sub { font-size: 0.82rem; color: var(--ink-2); }
-  .tag { font: 500 0.72rem/1 var(--f-mono); background: var(--gold); color: var(--gold-ink); padding: 6px 8px; border-radius: 4px; }
-
-  /* ---------- Bottom tab bar (feels native when saved to the iOS home screen) ---------- */
-  .tabbar {
-    position: fixed; left: 0; right: 0; bottom: 0; z-index: 10;
-    background: var(--surface); border-top: 1px solid var(--line);
-    padding: 6px 12px calc(6px + env(safe-area-inset-bottom, 0px));
-  }
-  .tabbar .inner { max-width: 520px; margin: 0 auto; display: grid; grid-template-columns: repeat(3, 1fr); gap: 4px; }
-  .tabbar button {
-    background: none; border: 0; padding: 6px 4px; border-radius: 8px; cursor: pointer;
-    display: grid; justify-items: center; gap: 2px; font-size: 0.75rem; font-weight: 500; color: var(--ink-2);
-  }
-  .tabbar button svg { width: 22px; height: 22px; }
-  .tabbar button[aria-selected="true"] { color: var(--accent); background: var(--surface-2); }
-
-  main { padding-block: 22px; display: grid; gap: 22px; }
-  .screen { display: grid; gap: 22px; }
-  .banner { padding: 10px 12px; border-radius: 8px; background: var(--watch-bg); color: var(--ink); font-size: 0.88rem; border: 1px solid var(--line); }
-
+  /* ---------- Home pages ---------- */
+  .hello { display: grid; gap: 6px; }
+  .hello h2 { font-size: clamp(1.4rem, 4vw, 1.9rem); }
+  .campus-grid { display: grid; grid-template-columns: repeat(auto-fit, minmax(170px, 1fr)); gap: 12px; }
+  .campus-card { background: var(--surface); border: 1px solid var(--line); border-top: 5px solid var(--ok); border-radius: 12px; padding: 12px 14px; display: grid; gap: 4px; }
+  .campus-card b { font: 800 1.25rem/1.1 var(--f-display); font-stretch: 85%; }
+  .campus-card.watch { border-top-color: var(--watch); } .campus-card.watch b { color: var(--watch); }
+  .campus-card.alert { border-top-color: var(--alert); background: var(--alert-bg); } .campus-card.alert b { color: var(--alert); }
+  .campus-card.ok b { color: var(--ok); }
+  .campus-card .muted { font-size: 0.86rem; }
+  .going { display: grid; gap: 12px; }
+  .going-row { display: grid; gap: 4px; padding-bottom: 12px; border-bottom: 1px solid var(--line); }
+  .going-row:last-child { border-bottom: 0; padding-bottom: 0; }
+  .going-top, .outlook-top { display: flex; justify-content: space-between; gap: 8px; flex-wrap: wrap; align-items: baseline; }
+  .action-card { color: inherit; text-decoration: none; border-left: 5px solid var(--accent); }
+  .action-card:hover { border-color: var(--accent); }
+  .outlook { display: grid; gap: 10px; }
+  .outlook-item { border: 1px solid var(--line); border-radius: 10px; padding: 12px 14px; display: grid; gap: 8px; }
+  .trend-list { display: grid; gap: 8px; }
+  .trend-row { border-left: 4px solid var(--watch); padding: 4px 0 4px 10px; display: grid; gap: 2px; }
+  .trend-row.level-alert { border-left-color: var(--alert); }
+  .chipline { display: flex; gap: 6px; flex-wrap: wrap; }
+  .chip { font: 500 0.76rem var(--f-mono); padding: 3px 8px; border-radius: 6px; background: var(--surface-2); }
+  .lab-mini { display: grid; grid-template-columns: repeat(2, 1fr); gap: 8px; }
+  .lab-mini a { display: grid; gap: 2px; padding: 10px 12px; border-radius: 10px; background: var(--surface-2); color: inherit; text-decoration: none; }
+  .lab-mini b { font: 700 1.5rem/1 var(--f-display); }
+  .lab-mini span { font-size: 0.8rem; color: var(--ink-2); }
+  .outlook-top .syn, .going-top .syn { white-space: normal; }
+  .outlook, .outlook-item, .trend-row, .going-row { min-width: 0; }
+  /* The cluster cards use class "alert", and so do alert badges: keep badges small. */
+  .badge.alert, .subtabs .badge { padding: 3px 6px; display: inline-block; border: 0; border-radius: 999px; animation: none; }
+  .badge.alert { background: var(--alert); color: #FFFFFF; }
   /* ---------- Survey form ---------- */
   .form { display: grid; gap: 18px; }
-  fieldset { border: 1px solid var(--line); background: var(--surface); border-radius: 12px; padding: 16px; margin: 0; display: grid; gap: 12px; min-width: 0; }
-  legend { font: 700 1.02rem/1.2 var(--f-display); font-stretch: 85%; padding: 0 6px; }
-  .hint { font-size: 0.84rem; color: var(--ink-2); }
-  .grid2 { display: grid; grid-template-columns: repeat(auto-fit, minmax(220px, 1fr)); gap: 12px; }
-  label.field { display: grid; gap: 4px; font-size: 0.88rem; font-weight: 500; }
-  select, input[type="date"], input[type="number"] {
-    width: 100%; padding: 10px 12px; border: 1px solid var(--line); border-radius: 8px; background: var(--bg); min-height: 44px;
-  }
-  .chips { display: flex; flex-wrap: wrap; gap: 8px; }
-  .chip-toggle { position: relative; }
-  .chip-toggle input { position: absolute; opacity: 0; inset: 0; margin: 0; cursor: pointer; }
-  .chip-toggle span {
-    display: inline-block; padding: 8px 12px; border: 1px solid var(--line); border-radius: 999px; font-size: 0.88rem;
-    background: var(--bg); user-select: none; min-height: 38px;
-  }
-  .chip-toggle input:checked + span { background: var(--accent); color: var(--accent-ink); border-color: var(--accent); }
-  .chip-toggle input:focus-visible + span { outline: 2px solid var(--accent); outline-offset: 2px; }
   .sym-group { display: grid; gap: 6px; }
   .sym-group .eyebrow { margin-top: 2px; }
   .seg { display: grid; grid-template-columns: repeat(3, 1fr); gap: 6px; }
   .seg .chip-toggle span { width: 100%; text-align: center; border-radius: 8px; }
-  .check { display: flex; gap: 10px; align-items: flex-start; font-size: 0.9rem; }
-  .check input { width: 20px; height: 20px; margin-top: 2px; accent-color: var(--accent); flex: none; }
-  .btn {
-    background: var(--accent); color: var(--accent-ink); border: 0; border-radius: 10px; padding: 14px 18px;
-    font-weight: 600; font-size: 1rem; cursor: pointer; min-height: 48px;
-  }
-  .btn[disabled] { opacity: 0.5; cursor: not-allowed; }
-  .btn.ghost { background: var(--surface-2); color: var(--ink); }
-  .err { color: var(--alert); font-size: 0.88rem; }
 
   /* Result card shown after submitting */
   .result { background: var(--surface); border: 1px solid var(--line); border-radius: 12px; padding: 18px; display: grid; gap: 12px; }
@@ -176,11 +103,6 @@
   .live { display: inline-flex; align-items: center; gap: 6px; font: 500 0.78rem var(--f-mono); color: var(--ink-2); }
   .live i { width: 8px; height: 8px; border-radius: 50%; background: var(--ok); display: inline-block; }
   .live.off i { background: var(--ink-2); }
-  .kpis { display: grid; grid-template-columns: repeat(auto-fit, minmax(150px, 1fr)); gap: 1px; background: var(--line); border: 1px solid var(--line); border-radius: 12px; overflow: hidden; }
-  .kpi { background: var(--surface); padding: 14px 16px; display: grid; gap: 4px; align-content: start; }
-  .kpi .num { font: 700 1.9rem/1 var(--f-display); font-variant-numeric: tabular-nums; }
-  .kpi .delta { font: 500 0.8rem var(--f-mono); }
-  .up { color: var(--alert); } .down { color: var(--ok); }
 
   .alerts { display: grid; gap: 12px; }
   .alert {
@@ -190,29 +112,15 @@
   .alert.level-alert { border-left-color: var(--alert); }
   .alert.level-watch { border-left-color: var(--watch); }
   .alert-top { display: flex; justify-content: space-between; gap: 10px; flex-wrap: wrap; align-items: baseline; }
-  .pill { font: 600 0.7rem/1 var(--f-mono); letter-spacing: 0.06em; text-transform: uppercase; padding: 5px 8px; border-radius: 999px; white-space: nowrap; }
-  .pill.alert-p { background: var(--alert-bg); color: var(--alert); }
-  .pill.watch-p { background: var(--watch-bg); color: var(--watch); }
-  .pill.ok-p { background: var(--ok-bg); color: var(--ok); }
   .lookfor { background: var(--surface-2); border-radius: 8px; padding: 10px 12px; font-size: 0.9rem; }
   .lookfor b { font-weight: 600; }
   .meta { display: flex; gap: 14px; flex-wrap: wrap; font: 400 0.8rem var(--f-mono); color: var(--ink-2); }
-  .quiet { background: var(--ok-bg); border-radius: 10px; padding: 14px 16px; }
 
-  .panel { background: var(--surface); border: 1px solid var(--line); border-radius: 12px; padding: 16px; display: grid; gap: 12px; min-width: 0; }
-  .panel-head { display: flex; justify-content: space-between; align-items: baseline; gap: 10px; flex-wrap: wrap; }
   .chart-box { overflow-x: auto; }
   .chart-box svg { display: block; width: 100%; min-width: 520px; height: auto; }
   .legend { display: flex; flex-wrap: wrap; gap: 6px 14px; font-size: 0.8rem; color: var(--ink-2); }
   .legend span { display: inline-flex; align-items: center; gap: 6px; }
-  .sw { width: 10px; height: 10px; border-radius: 2px; display: inline-block; flex: none; }
 
-  .table-box { overflow-x: auto; }
-  table { border-collapse: collapse; width: 100%; font-size: 0.86rem; }
-  th, td { padding: 8px 10px; text-align: left; border-bottom: 1px solid var(--line); vertical-align: top; }
-  th { font: 500 0.7rem var(--f-mono); letter-spacing: 0.06em; text-transform: uppercase; color: var(--ink-2); white-space: nowrap; }
-  td.n { text-align: center; font-family: var(--f-mono); font-variant-numeric: tabular-nums; }
-  .syn { display: inline-flex; align-items: center; gap: 6px; white-space: nowrap; }
   /* Wastewater map. z-index 0 keeps Leaflet's layers under the fixed tab bar. */
   .ww-map { position: relative; z-index: 0; height: 340px; border: 1px solid var(--line); border-radius: 10px; overflow: hidden; background: var(--surface-2); }
   .map-legend { display: flex; flex-wrap: wrap; gap: 6px 16px; font-size: 0.8rem; color: var(--ink-2); align-items: center; }
@@ -245,8 +153,6 @@
   .subtabs button { flex: none; display: inline-flex; align-items: center; gap: 6px; border: 1px solid var(--line); background: var(--surface);
     color: var(--ink-2); border-radius: 999px; padding: 7px 14px; font: 500 0.88rem var(--f-body); cursor: pointer; min-height: 38px; }
   .subtabs button[aria-selected="true"] { background: var(--accent); border-color: var(--accent); color: var(--accent-ink); }
-  .badge { font: 600 0.7rem/1 var(--f-mono); padding: 3px 6px; border-radius: 999px; background: var(--surface-2); color: var(--ink); }
-  .badge.alert { background: var(--alert); color: #FFFFFF; }
   .subtabs button[aria-selected="true"] .badge:not(.alert) { background: rgba(255,255,255,0.25); color: inherit; }
   .subpanel { display: grid; gap: 22px; min-width: 0; }
   /* Agreement table: each source cell is a button that opens that source's tab */
@@ -281,12 +187,8 @@ a.news-title:hover { text-decoration-color: currentColor; }
   .steps { display: grid; gap: 10px; padding-left: 1.2em; margin: 0; }
   .src { font-size: 0.8rem; min-width: 14ch; }
   .pts { font-family: var(--f-mono); font-size: 0.8rem; white-space: nowrap; }
-  footer { font-size: 0.8rem; color: var(--ink-2); padding-block: 8px 0; max-width: 68ch; }
 
-  .appbar-links { display: flex; align-items: center; gap: 12px; flex-wrap: wrap; }
-  .lab-link { font-weight: 600; color: var(--accent); }
   /* Research export tab */
-  .btn.small { padding: 8px 12px; font-size: 0.88rem; min-height: 38px; border-radius: 8px; }
   .rx-steps { display: grid; gap: 16px; }
   .rx-row { display: flex; flex-wrap: wrap; gap: 8px; align-items: center; }
   .rx-count { font: 500 0.8rem var(--f-mono); color: var(--ink-2); }
@@ -305,28 +207,112 @@ a.news-title:hover { text-decoration-color: currentColor; }
 <body>
 
 <div class="wrap">
+  <!-- Header: the same on every page. Main links, and who is signed in (filled by session.js). -->
   <header class="appbar">
-    <div class="brand">
+    <a class="brand" href="#home">
       <div class="mark" aria-hidden="true">
         <!-- a simple pulse line, drawn by hand -->
         <svg viewBox="0 0 24 24" fill="none" stroke="#FFC627" stroke-width="2.2" stroke-linecap="round" stroke-linejoin="round"><path d="M2 13h4l2-6 4 12 3-9 2 3h5"/></svg>
       </div>
       <div>
         <h1>Campus Sentinel</h1>
-        <p class="sub"><span id="mmwr" class="mono">MMWR week</span> · symptom surveillance across the ASU campus network</p>
+        <p class="sub"><span id="mmwr" class="mono">MMWR week</span> · ASU campus health</p>
       </div>
-    </div>
-    <div class="appbar-links">
-      <a class="lab-link" href="lab.html">Lab portal</a>
-      <span class="tag">Class project · not an official ASU service</span>
-    </div>
+    </a>
+    <nav class="topnav" aria-label="Main">
+      <a href="#home" data-nav="home">Home</a>
+      <a href="#report" data-nav="report">Report symptoms</a>
+      <a href="lab.html" data-nav="lab">Lab</a>
+    </nav>
+    <div class="session" id="session"></div>
   </header>
 
   <main>
     <div id="modeBanner" class="banner" hidden></div>
 
+    <!-- ===================== START: sign in or try the demo ===================== -->
+    <section class="screen" id="screen-start" data-screen="start" hidden>
+      <div class="hero">
+        <span class="eyebrow">ASU campus health · class project</span>
+        <h2>See what's going around campus, and help catch outbreaks early.</h2>
+        <p class="muted">Anonymous symptom reports, wastewater testing, news and social posts, and clinic lab results, in one place. Each person sees what they need: students the essentials, clinicians the trends, researchers everything.</p>
+      </div>
+      <div class="cards">
+        <div class="panel start-card">
+          <span class="eyebrow">With your account</span>
+          <h3>Sign in</h3>
+          <p class="muted">Students see campus health and their own lab results. Clinicians and researchers on the approved list get their tools automatically.</p>
+          <div><button class="btn" id="startSignIn">Sign in with Google</button></div>
+          <p class="hint" id="startNote"></p>
+        </div>
+        <div class="panel start-card">
+          <span class="eyebrow">No account needed</span>
+          <h3>Try the demo</h3>
+          <div class="role-pick">
+            <button type="button" data-demo="student"><b>Student</b><span>Campus status, what to watch for, my lab results</span></button>
+            <button type="button" data-demo="clinician"><b>Clinician</b><span>Clinical trends, predicted spikes, lab review</span></button>
+            <button type="button" data-demo="researcher"><b>Researcher</b><span>Every data source in detail, and exports</span></button>
+          </div>
+          <p class="hint">Uses made-up example data. Switch roles any time at the top right.</p>
+        </div>
+      </div>
+      <p class="start-report"><a href="#report">Just want to report symptoms? No sign-in needed &rarr;</a></p>
+    </section>
+
+    <!-- ===================== STUDENT HOME: the essentials ===================== -->
+    <section class="screen" id="screen-home-student" data-screen="home-student" hidden>
+      <div class="hello">
+        <span class="eyebrow">Campus health · this week</span>
+        <h2 id="stuHeadline">Loading…</h2>
+        <p class="muted" id="stuSub"></p>
+      </div>
+      <div class="campus-grid" id="stuCampuses"></div>
+      <div class="panel">
+        <h3>What's going around</h3>
+        <div id="stuGoing" class="going"></div>
+      </div>
+      <div class="cards">
+        <a class="panel action-card" href="#report">
+          <span class="eyebrow">Feeling sick?</span><h3>Report symptoms anonymously</h3>
+          <p class="muted">About a minute. No name, email or student ID.</p>
+        </a>
+        <a class="panel action-card" href="lab.html">
+          <span class="eyebrow">Lab results</span><h3 id="stuLabTitle">My lab results</h3>
+          <p class="muted" id="stuLabSub">Results appear after your clinician reviews them.</p>
+        </a>
+      </div>
+    </section>
+
+    <!-- ===================== CLINICIAN HOME: trends and what's coming ===================== -->
+    <section class="screen" id="screen-home-clinician" data-screen="home-clinician" hidden>
+      <div class="hello">
+        <span class="eyebrow">Clinician summary · last 7 days by onset</span>
+        <h2 id="cliHeadline">Loading…</h2>
+      </div>
+      <div class="kpis" id="cliKpis"></div>
+      <div class="panel">
+        <div class="panel-head"><h3>Outlook: next 7 days</h3><span class="eyebrow">Predicted spikes</span></div>
+        <div id="cliOutlook" class="outlook"></div>
+        <p class="hint">Each prediction combines up to four signals: the trend in symptom reports (a growth rate fitted to the last 7 days), a wastewater rise for the matching pathogen, social and news posts, and lab-confirmed cases. More agreeing signals mean more confidence. These are simple projections for planning, not validated forecasts.</p>
+      </div>
+      <div class="two-col">
+        <div class="panel">
+          <div class="panel-head"><h3>Notable trends</h3><span class="eyebrow">Symptom clusters</span></div>
+          <div id="cliTrends" class="trend-list"></div>
+        </div>
+        <div class="panel">
+          <div class="panel-head"><h3>Lab</h3><a href="lab.html">Open the lab &rarr;</a></div>
+          <div id="cliLab"></div>
+        </div>
+      </div>
+      <div class="panel">
+        <div class="panel-head"><h3>Where the signals agree</h3><span class="eyebrow">Reports · wastewater · posts · news</span></div>
+        <div class="table-box" id="cliAgree"></div>
+      </div>
+    </section>
+
     <!-- ===================== SCREEN 1: REPORT SYMPTOMS ===================== -->
-    <section class="screen" id="screen-report" data-screen="report">
+    <section class="screen" id="screen-report" data-screen="report" hidden>
       <div class="prose">
         <h2>Feeling sick? Report it anonymously.</h2>
         <p class="muted">Takes about a minute. We never ask for your name, email, or student ID. Your answers help spot outbreaks early.</p>
@@ -393,11 +379,11 @@ a.news-title:hover { text-decoration-color: currentColor; }
       <div id="resultCard" hidden></div>
     </section>
 
-    <!-- ===================== SCREEN 2: DASHBOARD ===================== -->
-    <section class="screen" id="screen-dashboard" data-screen="dashboard" hidden>
+    <!-- ===================== RESEARCHER HOME: every source in detail ===================== -->
+    <section class="screen" id="screen-dashboard" data-screen="research" hidden>
       <div class="dash-head">
         <div class="prose" style="gap:4px">
-          <span class="eyebrow">Surveillance report · last 7 days by onset date</span>
+          <span class="eyebrow">Researcher view · last 7 days by onset date</span>
           <h2 id="statusLine">Loading reports…</h2>
         </div>
         <div class="toolbar">
@@ -413,8 +399,7 @@ a.news-title:hover { text-decoration-color: currentColor; }
         <button role="tab" data-sub="wastewater" aria-selected="false">Wastewater <span class="badge" id="badge-wastewater" hidden></span></button>
         <button role="tab" data-sub="genomics" aria-selected="false">Genomics <span class="badge" id="badge-genomics" hidden></span></button>
         <button role="tab" data-sub="social" aria-selected="false">Social &amp; news <span class="badge" id="badge-social" hidden></span></button>
-        <button role="tab" data-sub="research" aria-selected="false">Research</button>
-        <button role="tab" data-sub="demo" aria-selected="false">Live demo</button>
+        <button role="tab" data-sub="research" aria-selected="false">Export</button>
       </nav>
 
       <!-- ============ OVERVIEW ============ -->
@@ -615,28 +600,32 @@ a.news-title:hover { text-decoration-color: currentColor; }
         <div id="rxResults" hidden></div>
       </div>
 
-      <!-- ============ LIVE DEMO ============ -->
-      <div class="subpanel" data-subpanel="demo" hidden>
+    </section>
+
+    <!-- ===================== LIVE DEMO: QR codes for the projector (footer link) ===================== -->
+    <section class="screen" id="screen-live" data-screen="live" hidden>
+      <div class="prose"><h2>Live demo</h2><p class="muted">Classmates scan a code with their phone camera. No sign-in needed.</p></div>
+      
         <div class="demo-grid">
           <div class="panel demo-card">
             <span class="eyebrow">Live demo</span>
             <h3>Report symptoms</h3>
             <div class="qr" id="qrCode" aria-label="QR code to open the survey"></div>
-            <p class="muted">Point your phone camera at the code. New reports appear on the Symptoms tab within seconds.</p>
+            <p class="muted">Point your phone camera at the code. New reports appear on every dashboard within seconds.</p>
             <span class="url" id="qrUrl"></span>
           </div>
           <div class="panel demo-card">
             <span class="eyebrow">Live demo</span>
             <h3>Post on the demo feed</h3>
             <div class="qr" id="qrFeed" aria-label="QR code to open the demo social feed"></div>
-            <p class="muted">Write a short post like you would on social media. The NLP system tags it within seconds on the Social tab.</p>
+            <p class="muted">Write a short post like you would on social media. The NLP worker tags it within seconds (researcher view, Social &amp; news).</p>
             <span class="url" id="qrFeedUrl"></span>
           </div>
         </div>
-      </div>
+      
     </section>
 
-    <!-- ===================== SCREEN 3: METHOD ===================== -->
+    <!-- ===================== HOW IT WORKS (footer link) ===================== -->
     <section class="screen" id="screen-method" data-screen="method" hidden>
       <div class="prose">
         <h2>How Campus Sentinel works</h2>
@@ -651,7 +640,9 @@ a.news-title:hover { text-decoration-color: currentColor; }
           <li><b>Measure lead time.</b> The wastewater rise date is the first sample in the last 21 days at 2× baseline or more. Lead time is the number of days from that date to the first symptom onset in the matching cluster; positive means wastewater saw it first.</li>
           <li><b>Track SARS-CoV-2 lineages.</b> Sequencing results (lineage shares from a tool like Freyja) are shown as a stacked bar per sample. Diversity is the Shannon index, H = −Σ p ln p, shown as e<sup>H</sup>, the effective number of lineages.</li>
           <li><b>Export for research.</b> The Research tab filters every source by syndrome, place and date and downloads the matching rows as CSV, with a data dictionary and a record of the filters. Wastewater targets follow their linked syndromes; posts and stories follow the place their text names.</li>
-          <li><b>Lab portal.</b> A separate, sign-in page (<a href="lab.html">lab.html</a>) for clinic lab results: PCR panels, cultures with antibiotic susceptibility, and viral and bacterial genomes. Patients see their own signed results, clinicians review and sign, researchers get de-identified totals. Modeled on the KDI system of Servant et al. (Front. Genet. 2014). Synthetic data only.</li>
+          <li><b>Predict spikes (clinician outlook).</b> For each syndrome and campus, a growth rate is fitted to the last 7 days of reports (a straight line through the logarithm of daily counts), and the next 7 days are projected from it, capped at 3× this week. A wastewater rise for the matching pathogen counts as a second signal; when reports haven't caught up yet, the expected delay is the median lead time measured on this campus. Recent posts and news, and lab-confirmed patients, add confidence: 4 or more points is high, 2–3 moderate, 1 low. These are simple planning projections, not validated forecasts.</li>
+          <li><b>Lab results.</b> The Lab page (<a href="lab.html">lab.html</a>) holds clinic results: PCR panels, cultures with antibiotic susceptibility, and viral and bacterial genomes. Rules flag results that need discussion, a clinician signs them, students see their own signed results, and researchers get de-identified totals. Modeled on the KDI system of Servant et al. (Front. Genet. 2014). Synthetic data only.</li>
+          <li><b>One app, three views.</b> Students see their campus status, what's going around and what to do. Clinicians see notable trends, the outlook and the lab worklist. Researchers see every source in detail with exports. Everyone can report symptoms. Roles come from the sign-in email (lists in lab-config.js and firestore.rules), or are picked in the demo.</li>
         </ol>
       </div>
       <div class="panel">
@@ -664,29 +655,25 @@ a.news-title:hover { text-decoration-color: currentColor; }
       </div>
     </section>
 
-    <footer>Not medical advice. For trouble breathing, a stiff neck with fever, confusion, or chest pain, call 911. For other care, contact ASU Health Services or your own provider.</footer>
+    <footer class="site-foot">
+      <nav aria-label="More"><a href="#method">How it works</a><a href="#live">Live demo QR codes</a><a href="feed.html">Demo social feed</a><a href="demo-data.html">Refresh demo data</a><a href="wastewater-import.html">Upload wastewater data</a></nav>
+      <p>Not medical advice. For trouble breathing, a stiff neck with fever, confusion, or chest pain, call 911. For other care, contact ASU Health Services or your own provider.</p>
+      <p>Class project (ASU BMI 461), not an official ASU service.</p>
+    </footer>
   </main>
 </div>
 
-<nav class="tabbar" role="tablist" aria-label="Screens">
+<nav class="tabbar" aria-label="Main">
   <div class="inner">
-    <button role="tab" id="tab-report" data-tab="report" aria-selected="true">
-      <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round"><rect x="5" y="3" width="14" height="18" rx="2"/><path d="M9 8h6M9 12h6M9 16h3"/></svg>
-      Report
-    </button>
-    <button role="tab" id="tab-dashboard" data-tab="dashboard" aria-selected="false">
-      <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round"><path d="M4 20V10M10 20V4M16 20v-7M22 20H2"/></svg>
-      Dashboard
-    </button>
-    <button role="tab" id="tab-method" data-tab="method" aria-selected="false">
-      <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round"><circle cx="12" cy="12" r="9"/><path d="M12 11v6M12 7.5v.5"/></svg>
-      Method
-    </button>
+    <a href="#home" data-nav="home"><svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><path d="M3 11l9-7 9 7"/><path d="M5 10v10h14V10"/></svg>Home</a>
+    <a href="#report" data-nav="report"><svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round"><rect x="5" y="3" width="14" height="18" rx="2"/><path d="M9 8h6M9 12h6M9 16h3"/></svg>Report</a>
+    <a href="lab.html" data-nav="lab"><svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><path d="M9 3h6M10 3v6l-5 9a2 2 0 0 0 1.8 3h10.4A2 2 0 0 0 19 18l-5-9V3"/></svg>Lab</a>
   </div>
 </nav>
 
 <!-- Libraries: Firebase (database) and a QR code generator -->
 <script src="https://www.gstatic.com/firebasejs/10.12.2/firebase-app-compat.js"></script>
+<script src="https://www.gstatic.com/firebasejs/10.12.2/firebase-auth-compat.js"></script>
 <script src="https://www.gstatic.com/firebasejs/10.12.2/firebase-firestore-compat.js"></script>
 <script src="https://cdnjs.cloudflare.com/ajax/libs/qrcodejs/1.0.0/qrcode.min.js"></script>
 <script src="https://cdnjs.cloudflare.com/ajax/libs/leaflet/1.9.4/leaflet.min.js"></script>
@@ -696,6 +683,12 @@ a.news-title:hover { text-decoration-color: currentColor; }
 <!-- Wastewater targets and sampling sites (edit this file) -->
 <!-- "?v=3" makes browsers fetch a fresh copy after an update; raise the number when you edit the file -->
 <script src="wastewater-config.js?v=5"></script>
+<!-- Roles, lab rules and example data (shared with lab.html and demo-data.html) -->
+<script src="lab-config.js?v=2"></script>
+<script src="lab-demo.js?v=2"></script>
+<script src="lab-core.js?v=1"></script>
+<script src="demo-data.js?v=1"></script>
+<script src="session.js?v=1"></script>
 
 <script>
 /* =====================================================================
@@ -1465,14 +1458,13 @@ function setupProblem() {
 
 function connectDatabase() {
   const problem = setupProblem();
-  if (problem) {
-    showBanner("Local mode: " + problem);
+  state.db = Session.db();
+  if (problem || !state.db) {
     setLive(false, "Local only");
-    renderDashboard();
+    useBuiltInExamples("Offline demo: showing example data built into the page (the database isn't reachable from here).");
+    $("modeBanner").title = problem || "";
     return;
   }
-  firebase.initializeApp(getConfig());
-  state.db = firebase.firestore();
   subscribeWastewater();
   subscribeLineages();
   subscribeMedia();
@@ -1480,9 +1472,11 @@ function connectDatabase() {
   // Subscribe ONCE. The callback runs now and again whenever anyone submits.
   state.db.collection("reports").onSnapshot(
     snap => {
+      if (state.builtIn) return;                 // the built-in example data was chosen for this visit
       state.reports = snap.docs.map(d => ({ id: d.id, ...d.data() }));
       state.lastUpdate = new Date();
       setLive(true, "Live");
+      offerExamplesIfEmpty();
       renderDashboard();
     },
     err => {
@@ -1494,10 +1488,28 @@ function connectDatabase() {
   );
 }
 
+// Demo without a database (or with an empty one): build the example data in the browser.
+function useBuiltInExamples(message) {
+  state.builtIn = true;
+  state.reports = DemoData.reports(); state.wastewater = DemoData.wastewater();
+  state.lineagesAll = DemoData.lineages(); state.media = DemoData.media().map((m, i) => ({ id: "demo-m" + i, ...m }));
+  if (message) showBanner(message);
+  renderDashboard();
+}
+// In a demo, if the database has no example reports yet, offer the built-in set (once).
+function offerExamplesIfEmpty() {
+  const s = Session.current();
+  if (state.offered || !s || s.mode !== "demo" || state.reports.some(r => r.demo)) return;
+  state.offered = true;
+  $("modeBanner").innerHTML = `The database has no example data yet. <button class="btn small ghost" id="useBuiltIn">Use built-in example data</button> or <a href="demo-data.html">refresh the demo data</a>.`;
+  $("modeBanner").hidden = false;
+  $("useBuiltIn").onclick = () => { $("modeBanner").hidden = true; useBuiltInExamples(); };
+}
+
 // Wastewater samples: only the last 70 days are read, which keeps the daily read count small.
 function subscribeWastewater() {
   state.db.collection("wastewater").where("date", ">=", addDays(todayStr(), -70)).onSnapshot(
-    snap => { state.wastewater = snap.docs.map(d => ({ id: d.id, ...d.data() })); renderDashboard(); },
+    snap => { if (state.builtIn) return; state.wastewater = snap.docs.map(d => ({ id: d.id, ...d.data() })); renderDashboard(); },
     err => showBanner(err.code === "permission-denied"
       ? "Wastewater data couldn't be read. Publish the updated firestore.rules (see README)."
       : "Wastewater updates stopped (" + err.code + ").")
@@ -1508,7 +1520,7 @@ function subscribeWastewater() {
 function subscribeMedia() {
   const since = new Date(Date.now() - 14 * 864e5).toISOString();
   state.db.collection("media_extracted").where("postedAt", ">=", since).onSnapshot(
-    snap => { state.media = snap.docs.map(d => ({ id: d.id, ...d.data() })); renderDashboard(); },
+    snap => { if (state.builtIn) return; state.media = snap.docs.map(d => ({ id: d.id, ...d.data() })); renderDashboard(); },
     err => showBanner(err.code === "permission-denied"
       ? "Media signals couldn't be read. Publish the updated firestore.rules (see README)."
       : "Media updates stopped (" + err.code + ")."));
@@ -1517,7 +1529,7 @@ function subscribeMedia() {
 // SARS-CoV-2 lineage samples from sequencing, last 70 days.
 function subscribeLineages() {
   state.db.collection("lineages").where("date", ">=", addDays(todayStr(), -70)).onSnapshot(
-    snap => { state.lineagesAll = snap.docs.map(d => ({ id: d.id, ...d.data() })); renderDashboard(); },
+    snap => { if (state.builtIn) return; state.lineagesAll = snap.docs.map(d => ({ id: d.id, ...d.data() })); renderDashboard(); },
     err => showBanner(err.code === "permission-denied"
       ? "Lineage data couldn't be read. Publish the updated firestore.rules (see README)."
       : "Lineage updates stopped (" + err.code + ").")
@@ -1548,9 +1560,8 @@ async function fetchResearchData(from, to, want) {
 }
 
 async function saveReport(report) {
-  if (state.db) {
-    await state.db.collection("reports").add(report);  // snapshot listener re-renders
-  } else {
+  if (state.db) await state.db.collection("reports").add(report);   // the live listener re-renders
+  if (!state.db || state.builtIn) {                                  // offline or built-in example data: show it here too
     state.reports.push({ id: "local-" + Date.now(), ...report });
     renderDashboard();
   }
@@ -1672,12 +1683,12 @@ function showResult(report) {
       ${c.urgent ? `<div class="urgent"><b>Some of your answers can signal a serious illness.</b> Please contact ASU Health Services or a clinician today. For trouble breathing or a stiff neck with fever, call 911.</div>` : ""}
       <p class="muted">Rest, drink fluids, wash your hands often, and stay home from class until you have been fever-free for 24 hours without medicine.</p>
       <div class="toolbar">
-        <button class="btn" type="button" id="goDash">See the dashboard</button>
+        <button class="btn" type="button" id="goDash">See what's going around</button>
         <button class="btn ghost" type="button" id="again">Submit another report</button>
       </div>
     </div>`;
   $("resultCard").hidden = false;
-  $("goDash").onclick = () => showScreen("dashboard");
+  $("goDash").onclick = () => { location.hash = Session.current() ? "#home" : "#start"; };
   $("again").onclick = () => { $("survey").reset(); buildFormDefaults(); $("survey").hidden = false; $("resultCard").hidden = true; };
   $("resultCard").scrollIntoView({ behavior: "smooth", block: "start" });
 }
@@ -1760,9 +1771,15 @@ function renderDashboard() {
   renderLeadTimes(wwSignals, clusters);
   renderGenomics();
   renderMediaPanel(mediaWindow(socialAll, newsAll, mediaRange(), clusters, wwSignals), media);
-  renderAgreement(signalAgreement(clusters, wwSignals, media, news));
+  const agree = signalAgreement(clusters, wwSignals, media, news);
+  renderAgreement(agree, "agreeTable", true);
   renderBadges({ clusters, wwSignals, media, news, lineageShift });
   renderGlance({ week, prev, clusters, wwSignals, media, news });
+  // The role home pages use the same numbers
+  const ctx = { reports, week, prev, clusters, wwSignals, media, news, socialAll, newsAll, agree };
+  const role = (Session.current() || {}).role;
+  if (role === "student") renderStudentHome(ctx);
+  if (role === "clinician") renderClinicianHome(ctx);
 }
 
 function kpi(label, num, sub) {
@@ -2318,15 +2335,15 @@ function RESIDENCE_CAMPUS_OF(place) {
   return residenceCampus[place] || null;
 }
 
-function renderAgreement(rows) {
+function renderAgreement(rows, target = "agreeTable", clickable = true) {
   if (!rows.length) {
-    $("agreeTable").innerHTML = `<div class="quiet"><b>All quiet.</b> No source has flagged a place this week.</div>`;
+    $(target).innerHTML = `<div class="quiet"><b>All quiet.</b> No source has flagged a place this week.</div>`;
     return;
   }
-  const cell = (on, text, sub) => on
+  const cell = (on, text, sub) => !on ? `<span class="muted">—</span>` : clickable
     ? `<button class="src-cell" data-go="${sub}"><i class="dot-on"></i><span>${text}</span></button>`
-    : `<span class="muted">—</span>`;
-  $("agreeTable").innerHTML = `<table><thead><tr><th>Place</th><th>Illness</th><th>Symptom reports</th><th>Wastewater</th><th>Social posts</th><th>News</th><th>Agreement</th></tr></thead><tbody>` +
+    : `<span class="src-cell"><i class="dot-on"></i><span>${text}</span></span>`;
+  $(target).innerHTML = `<table><thead><tr><th>Place</th><th>Illness</th><th>Symptom reports</th><th>Wastewater</th><th>Social posts</th><th>News</th><th>Agreement</th></tr></thead><tbody>` +
     rows.slice(0, 10).map(r => {
       const syn = syndromeById[r.syndrome];
       const agreeCls = r.sources >= 3 ? "alert-p" : r.sources === 2 ? "watch-p" : "ok-p";
@@ -2339,7 +2356,7 @@ function renderAgreement(rows) {
         <td>${cell(r.stories, `${r.stories} stor${r.stories === 1 ? "y" : "ies"}`, "social")}</td>
         <td><span class="pill ${agreeCls}">${r.sources} of 4</span></td></tr>`;
     }).join("") + `</tbody></table>`;
-  $("agreeTable").querySelectorAll("[data-go]").forEach(b => b.addEventListener("click", () => showSub(b.dataset.go)));
+  $(target).querySelectorAll("[data-go]").forEach(b => b.addEventListener("click", () => showSub(b.dataset.go)));
 }
 
 // Small counts on the sub-tabs, so it's clear where to look.
@@ -2890,44 +2907,255 @@ async function downloadResearch(what) {
 }
 
 /* =====================================================================
-   7. STARTUP — tabs, then form, then data
+   6c. ROLE HOME PAGES
+   Each role gets its own home page built from the same numbers:
+     Student     the essentials: is my campus OK, what's going around, what to do
+     Clinician   notable trends, an outlook of predicted spikes, and lab review
+     Researcher  every source in detail (the tabbed dashboard above)
    ===================================================================== */
 
-const SUBS = ["overview", "symptoms", "wastewater", "genomics", "social", "research", "demo"];
+const HOME_CAMPUSES = CAMPUSES.filter(c => c.id !== "online");
+const reportCampus = r => residenceCampus[r.residence] || (r.campuses || []).find(c => c !== "online") || null;
+const clusterCampus = c => c.residenceId ? residenceCampus[c.residenceId] : c.campusId;
+const PLAIN = { ili: "flu-like illness", resp: "colds and other respiratory illness", gi: "stomach illness", skin: "rashes", neuro: "meningitis-like illness", other: "general illness" };
+// Short, practical advice for students. General public-health guidance, not medical advice.
+const TIPS = {
+  gi: "Wash hands with soap and water (hand sanitizer doesn't kill norovirus). Don't share food or drinks, and stay home for 2 days after vomiting or diarrhea stop.",
+  ili: "Cover coughs, wash your hands, and stay home until you've been fever-free for 24 hours without medicine. A flu shot still helps.",
+  resp: "Wash hands, rest and drink fluids. See a clinician if you have trouble breathing or symptoms last more than 10 days.",
+  skin: "Don't share towels, razors or bedding. Get a rash with fever checked by a clinician.",
+  neuro: "A stiff neck with fever and headache is an emergency: call 911.",
+  other: "Rest, drink fluids, and stay home if you feel unwell.",
+};
 
-// Switch dashboard sub-tab; also remembered, and reachable by link (e.g. …/#wastewater).
+// ---------- Lab data for the home pages (the lab portal itself is lab.html) ----------
+const lab = { patients: [], results: [], unsub: [] };
+function loadLab() {
+  lab.unsub.forEach(u => u()); lab.unsub = [];
+  const s = Session.current(), db = Session.db();
+  lab.patients = []; lab.results = [];
+  if (!s) return;
+  if (s.mode === "demo") {                       // shared with lab.html for this tab, so signing there shows here
+    const d = LabCore.loadDemo(window.LAB_DEMO.build);
+    lab.patients = d.patients; lab.results = d.results;
+  } else if (db && s.role === "clinician") {
+    const sub = (col, key) => lab.unsub.push(db.collection(col).onSnapshot(snap => { lab[key] = snap.docs.map(d => ({ id: d.id, ...d.data() })); renderDashboard(); }, () => {}));
+    sub("lab_patients", "patients"); sub("lab_results", "results");
+  } else if (db && s.role === "student") {
+    lab.unsub.push(db.collection("lab_results").where("ownerEmail", "==", s.email).where("status", "==", "signed")
+      .onSnapshot(snap => { lab.results = snap.docs.map(d => ({ id: d.id, ...d.data() })); renderDashboard(); }, () => {}));
+  }
+}
+
+// ---------- Student ----------
+function renderStudentHome(ctx) {
+  const { week, prev, clusters, wwSignals } = ctx;
+  const status = HOME_CAMPUSES.map(cp => {
+    const cl = clusters.filter(c => clusterCampus(c) === cp.id).sort((a, b) => (b.level === "alert") - (a.level === "alert") || b.count - a.count);
+    const ww = wwSignals.filter(s => s.level && WW_SITE[s.site].campus === cp.id).sort(wwSort);
+    const level = cl.some(c => c.level === "alert") || ww.some(s => s.level === "alert") ? "alert" : cl.length || ww.length ? "watch" : "ok";
+    const top = cl[0];
+    const line = top ? `${PLAIN[top.syndrome][0].toUpperCase() + PLAIN[top.syndrome].slice(1)} at ${top.place}`
+      : ww[0] ? `${WW_TARGET[ww[0].target].name} rising in wastewater` : "Nothing unusual this week";
+    return { cp, level, line };
+  });
+  const worst = status.find(x => x.level === "alert") || status.find(x => x.level === "watch");
+  $("stuHeadline").textContent = !worst ? "All quiet on campus" : worst.level === "alert" ? `${worst.line}` : "A few things to watch";
+  $("stuSub").textContent = `${week.length} anonymous report${week.length === 1 ? "" : "s"} this week` + (prev.length ? `, ${week.length >= prev.length ? "up" : "down"} from ${prev.length} last week.` : ".");
+  const word = { alert: "Outbreak", watch: "Watch", ok: "Calm" };
+  $("stuCampuses").innerHTML = status.map(x => `<div class="campus-card ${x.level}">
+      <span class="eyebrow">${esc(x.cp.name)}</span><b>${word[x.level]}</b><span class="muted">${esc(x.line)}</span></div>`).join("");
+  const counts = countBy(week, r => r.c.syndrome), before = countBy(prev, r => r.c.syndrome);
+  const top = Object.keys(counts).filter(k => k !== "other").sort((a, b) => counts[b] - counts[a]).slice(0, 3);
+  $("stuGoing").innerHTML = top.length ? top.map(k => {
+    const syn = syndromeById[k], up = counts[k] > (before[k] || 0);
+    return `<div class="going-row"><div class="going-top"><span class="syn"><i class="sw" style="background:${syn.color}"></i><b>${syn.name}</b></span>
+      <span class="muted">${counts[k]} report${counts[k] === 1 ? "" : "s"} ${up ? "· rising" : ""}</span></div><p>${esc(TIPS[k])}</p></div>`;
+  }).join("") : `<div class="quiet">Not much going around this week.</div>`;
+  // My lab results
+  const s = Session.current();
+  let mine = [];
+  if (s && s.mode === "demo") {
+    const pid = s.demoPatientId || (lab.patients.find(p => lab.results.some(r => r.patientId === p.id && r.status === "signed")) || {}).id;
+    mine = lab.results.filter(r => r.patientId === pid && r.status === "signed");
+  } else mine = lab.results;
+  $("stuLabTitle").textContent = mine.length ? `My lab results (${mine.length})` : "My lab results";
+  $("stuLabSub").textContent = mine.length ? `${mine.length} reviewed result${mine.length === 1 ? "" : "s"}, explained in plain language. You can print them.` : "Results appear after your clinician reviews them.";
+}
+
+// ---------- Clinician ----------
+// Growth fitted to the last 7 days: log(count + 1) = a + b * day (least squares).
+// exp(7b) is the weekly growth factor; the next 7 days are projected from the same line.
+function fitGrowth(counts) {
+  const ys = counts.slice(-7).map(c => Math.log(c + 1)), n = ys.length, mx = (n - 1) / 2;
+  const my = ys.reduce((a, b) => a + b, 0) / n;
+  let sxy = 0, sxx = 0;
+  ys.forEach((y, x) => { sxy += (x - mx) * (y - my); sxx += (x - mx) * (x - mx); });
+  const b = sxx ? sxy / sxx : 0, a = my - b * mx;
+  let next7 = 0; for (let x = n; x < n + 7; x++) next7 += Math.max(0, Math.exp(a + b * x) - 1);
+  const last7 = counts.slice(-7).reduce((p, c) => p + c, 0);
+  // Exponential lines run away quickly, so the projection is capped at 3x this week.
+  return { b, weekly: Math.exp(7 * b), next7: Math.round(Math.min(next7, 3 * last7)), last7 };
+}
+const median = a => { const s = a.slice().sort((x, y) => x - y); return s.length ? (s.length % 2 ? s[(s.length - 1) / 2] : (s[s.length / 2 - 1] + s[s.length / 2]) / 2) : null; };
+
+function outlook(ctx) {
+  const { reports, clusters, wwSignals, socialAll, newsAll } = ctx;
+  const today = todayStr(), cands = {};
+  const cand = (syn, campus) => (cands[syn + "|" + campus] = cands[syn + "|" + campus] || { syn, campus, ev: [], score: 0 });
+  // 1. Symptom report trends, per syndrome and campus
+  SYNDROMES.filter(s => s.id !== "other").forEach(s => HOME_CAMPUSES.forEach(cp => {
+    const counts = Array.from({ length: 14 }, (_, i) => addDays(today, i - 13)).map(d =>
+      reports.filter(r => r.onset === d && r.c.syndrome === s.id && reportCampus(r) === cp.id).length);
+    const g = fitGrowth(counts);
+    if (g.last7) cand(s.id, cp.id).week = g.last7;
+    if (g.last7 >= 3 && g.b > 0.05 && g.next7 >= 1.3 * g.last7) {
+      const c = cand(s.id, cp.id); c.trend = g; c.score += 1;
+      c.ev.push(`Reports rising ×${Math.min(9.9, g.weekly).toFixed(1)} a week`);
+    }
+  }));
+  // 2. Wastewater rises (each target's main syndrome)
+  wwSignals.filter(s => s.level).forEach(sig => {
+    const c = cand(WW_TARGET[sig.target].syndromes[0], WW_SITE[sig.site].campus);
+    if (!c.ww || wwSort(sig, c.ww) < 0) c.ww = sig;
+  });
+  Object.values(cands).forEach(c => { if (c.ww) { c.score += c.ww.level === "alert" ? 2 : 1; c.ev.push(`${WW_TARGET[c.ww.target].name} in wastewater ${c.ww.ratioText}`); } });
+  // 3. Social posts and news from the last 3 days that name a place on that campus
+  const since = Date.now() - 3 * 864e5;
+  [...socialAll, ...newsAll].filter(m => m.isIllness && m.c && new Date(m.postedAt).getTime() >= since).forEach(m => {
+    const k = m.c.syndrome + "|" + (m.campus || RESIDENCE_CAMPUS_OF(m.place || "") || "");
+    if (cands[k]) { cands[k].posts = (cands[k].posts || 0) + 1; }
+  });
+  // 4. Lab-confirmed positives in the last 7 days
+  if (lab.results.length && lab.patients.length) {
+    const ctxL = LabCore.analysisContext(lab.results, lab.patients);
+    lab.results.filter(r => r.collected >= addDays(today, -6)).forEach(r => {
+      const it = LabCore.interpret(r, ctxL), p = lab.patients.find(x => x.id === r.patientId);
+      const k = it.syndrome + "|" + LabCore.placeCampus(p && p.residence);
+      if (it.level !== "negative" && cands[k]) (cands[k].labPatients = cands[k].labPatients || new Set()).add(r.patientId);
+    });
+  }
+  Object.values(cands).forEach(c => {
+    if (c.posts) { c.score += 1; c.ev.push(`${c.posts} post${c.posts === 1 ? "" : "s"} or stor${c.posts === 1 ? "y" : "ies"}`); }
+    if (c.labPatients) { c.lab = c.labPatients.size; c.score += 1; c.ev.push(`${c.lab} lab-confirmed patient${c.lab === 1 ? "" : "s"}`); }
+  });
+  const leads = leadTimes(wwSignals, clusters).filter(x => x.cluster && x.lead > 0).map(x => x.lead);
+  const lead = median(leads);
+  return Object.values(cands).filter(c => c.trend || c.ww).map(c => ({ ...c, lead,
+    confidence: c.score >= 4 ? "high" : c.score >= 2 ? "moderate" : "low" }))
+    .sort((a, b) => b.score - a.score || (b.trend ? b.trend.next7 : 0) - (a.trend ? a.trend.next7 : 0));
+}
+
+function renderClinicianHome(ctx) {
+  const { week, prev, clusters, wwSignals } = ctx;
+  const alerts = clusters.filter(c => c.level === "alert").length, wwUp = wwSignals.filter(s => s.level);
+  const items = outlook(ctx);
+  // Lab summary
+  const ctxL = LabCore.analysisContext(lab.results, lab.patients);
+  const its = lab.results.map(r => ({ r, it: LabCore.interpret(r, ctxL) }));
+  const discuss = its.filter(x => x.r.status !== "signed" && x.it.needsDiscussion).length;
+  const ready = its.filter(x => x.r.status !== "signed" && !x.it.needsDiscussion).length;
+  $("cliHeadline").textContent = (clusters.length ? `${clusters.length} cluster${clusters.length === 1 ? "" : "s"}${alerts ? `, ${alerts} at alert level` : ""}` : "No clusters")
+    + (items.length ? ` · ${items.length} predicted rise${items.length === 1 ? "" : "s"}` : "");
+  const change = week.length - prev.length, pct = prev.length ? Math.round(100 * change / prev.length) : null;
+  $("cliKpis").innerHTML = [
+    kpi("Reports, 7 days", week.length, pct === null ? `<span class="muted">no prior week</span>` : `<span class="${change > 0 ? "up" : "down"}">${change >= 0 ? "▲" : "▼"} ${Math.abs(pct)}% vs prior week</span>`),
+    kpi("Clusters", clusters.length, `<span class="muted">${alerts} alert · ${clusters.length - alerts} watch</span>`),
+    kpi("Wastewater rises", wwUp.length, `<span class="muted">${wwUp.filter(s => s.level === "alert").length} high</span>`),
+    kpi("Lab to review", discuss + ready, `<span class="${discuss ? "up" : "muted"}">${discuss} need discussion</span>`),
+  ].join("");
+  $("cliOutlook").innerHTML = items.length ? items.slice(0, 5).map(o => {
+    const syn = syndromeById[o.syn], cp = campusName[o.campus] || o.campus;
+    const follow = o.lead ? `about <b>${Math.round(o.lead)} days</b> after wastewater (the median lead time measured here)` : "within about a week";
+    const main = o.trend
+      ? `Expect about <b>${o.trend.next7} reports</b> in the next 7 days (${o.trend.last7} this week).`
+      : o.week ? `Wastewater is still rising and ${o.week} report${o.week === 1 ? " has" : "s have"} come in this week: expect more, ${follow}.`
+      : `Wastewater is rising but no reports yet: reports usually follow ${follow}.`;
+    const cl = clusters.find(c => c.syndrome === o.syn && clusterCampus(c) === o.campus);
+    const prep = cl ? cl.lookFor : o.ww && WW_TARGET[o.ww.target].hint ? WW_TARGET[o.ww.target].hint : lookFor(o.syn, "undetermined");
+    const cls = { high: "alert-p", moderate: "watch-p", low: "plain-p" }[o.confidence];
+    return `<div class="outlook-item"><div class="outlook-top"><span class="syn"><i class="sw" style="background:${syn.color}"></i><b>${syn.name}</b> · ${esc(cp)}</span>
+        <span class="pill ${cls}">${o.confidence} confidence</span></div><p>${main}</p>
+      <div class="chipline">${o.ev.map(e => `<span class="chip">${esc(e)}</span>`).join("")}</div>
+      <p class="hint"><b>Prepare:</b> ${esc(prep)}</p></div>`;
+  }).join("") : `<div class="quiet"><b>No spikes expected.</b> No syndrome is rising fast in reports or wastewater.</div>`;
+  $("cliTrends").innerHTML = clusters.length ? clusters.slice(0, 6).map(c => {
+    const syn = syndromeById[c.syndrome];
+    return `<div class="trend-row level-${c.level}"><div class="outlook-top"><span class="syn"><i class="sw" style="background:${syn.color}"></i><b>${esc(c.place)}</b></span>
+      <span class="pill ${c.level === "alert" ? "alert-p" : "watch-p"}">${c.level}</span></div>
+      <p class="muted">${syn.name} · ${c.count} reports${c.rising ? " · rising" : ""} · likely ${c.category === "undetermined" ? "undetermined" : categoryName[c.category].toLowerCase()}${(c.ww || []).length ? " · wastewater agrees" : ""}</p></div>`;
+  }).join("") + (clusters.length > 6 ? `<p class="hint">${clusters.length - 6} more in the researcher view.</p>` : "")
+    : `<div class="quiet"><b>All quiet.</b> No residence has ${RESIDENCE_WATCH}+ reports of the same syndrome this week.</div>`;
+  // Lab card
+  const since = addDays(todayStr(), -13), pos = {};
+  its.filter(x => x.r.collected >= since && x.it.level !== "negative").forEach(x => x.it.pathogens.forEach(pg => { pos[pg] = (pos[pg] || 0) + 1; }));
+  const gc = LabCore.genomeClusters(ctxL.genomes), resist = its.filter(x => x.r.kind === "culture" && x.it.flags.some(f => /MDR|ESBL|Carbapenem/.test(f.text))).length;
+  $("cliLab").innerHTML = lab.results.length ? `
+    <div class="lab-mini"><a href="lab.html"><b>${discuss}</b><span>need discussion</span></a><a href="lab.html"><b>${ready}</b><span>ready to sign</span></a><a href="lab.html"><b>${gc.length}</b><span>genomic cluster${gc.length === 1 ? "" : "s"}</span></a><a href="lab.html"><b>${resist}</b><span>resistant organism${resist === 1 ? "" : "s"}</span></a></div>
+    <span class="eyebrow">Positive, last 14 days</span>
+    <div class="chipline">${Object.entries(pos).sort((a, b) => b[1] - a[1]).slice(0, 8).map(([k, n]) => `<span class="chip">${esc(k)} × ${n}</span>`).join("") || '<span class="muted">none</span>'}</div>`
+    : `<p class="muted">No lab results yet.</p>`;
+  renderAgreement(ctx.agree, "cliAgree", false);
+}
+
+
+/* =====================================================================
+   7. STARTUP: pages, roles, then data
+   Pages are chosen by the address: #home (your role's home page), #report,
+   #method, #live, #start. The researcher's tabs also open by address
+   (e.g. #wastewater).
+   ===================================================================== */
+
+const SUBS = ["overview", "symptoms", "wastewater", "genomics", "social", "research"];
+
+// Researcher dashboard tab; also remembered.
 function showSub(name) {
   if (!SUBS.includes(name)) name = "overview";
-  if ($("screen-dashboard").hidden) showScreen("dashboard", true);
   document.querySelectorAll("[data-subpanel]").forEach(p => { p.hidden = p.dataset.subpanel !== name; });
   document.querySelectorAll("[data-sub]").forEach(b => b.setAttribute("aria-selected", String(b.dataset.sub === name)));
-  try { localStorage.setItem("sentinel-sub", name); } catch (e) {}
+  try { localStorage.setItem("sentinel-sub", name); } catch (e) { /* storage blocked */ }
   const active = document.querySelector(`[data-sub="${name}"]`);
   if (active) active.scrollIntoView({ block: "nearest", inline: "nearest" });
   if (name === "wastewater" && wwMap) setTimeout(() => { wwMap.invalidateSize(); fitWastewaterMap(); }, 0);
 }
 document.querySelectorAll("[data-sub]").forEach(b => b.addEventListener("click", () => { showSub(b.dataset.sub); window.scrollTo(0, 0); }));
 
-function showScreen(name, keepSub) {
-  document.querySelectorAll("[data-screen]").forEach(s => { s.hidden = s.dataset.screen !== name; });
-  document.querySelectorAll("[data-tab]").forEach(b => b.setAttribute("aria-selected", String(b.dataset.tab === name)));
-  try { localStorage.setItem("sentinel-tab", name); } catch (e) {}
-  window.scrollTo(0, 0);
-  if (name === "dashboard" && wwMap) setTimeout(() => { wwMap.invalidateSize(); fitWastewaterMap(); }, 0);
-  if (name === "dashboard" && !keepSub) {
+function showScreen(name) {
+  document.querySelectorAll("section[data-screen]").forEach(s => { s.hidden = s.dataset.screen !== name; });
+  document.body.dataset.view = name;             // e.g. hides the data notice on the start page
+  const nav = name === "report" ? "report" : ["start", "home-student", "home-clinician", "research"].includes(name) ? "home" : null;
+  document.querySelectorAll("[data-nav]").forEach(a => { if (a.dataset.nav === nav) a.setAttribute("aria-current", "page"); else a.removeAttribute("aria-current"); });
+  if (name === "research") {
     let sub = "overview";
-    try { sub = localStorage.getItem("sentinel-sub") || "overview"; } catch (e) {}
+    try { sub = localStorage.getItem("sentinel-sub") || "overview"; } catch (e) { /* storage blocked */ }
     showSub(sub);
   }
 }
-document.querySelectorAll("[data-tab]").forEach(b => b.addEventListener("click", () => showScreen(b.dataset.tab)));
+
+// Which page to show, from the address and the current role.
+function route() {
+  const demo = (location.hash || "").match(/^#demo-(student|clinician|researcher)$/);   // e.g. index.html#demo-clinician
+  if (demo) { history.replaceState(null, "", "#home"); Session.startDemo(demo[1]); return; }   // startDemo calls route() again
+  const h = (location.hash || "#home").slice(1), s = Session.current();
+  const home = !s ? "start" : s.role === "student" ? "home-student" : s.role === "clinician" ? "home-clinician" : "research";
+  if (["report", "method", "live", "start"].includes(h)) showScreen(h);
+  else if (SUBS.includes(h) && s && s.role === "researcher") { showScreen("research"); showSub(h); }
+  else showScreen(home);
+  window.scrollTo(0, 0);
+}
+window.addEventListener("hashchange", route);
+
+// Start page buttons
+document.querySelectorAll("[data-demo]").forEach(b => b.addEventListener("click", () => { Session.startDemo(b.dataset.demo); location.hash = "#home"; route(); }));
+$("startSignIn").addEventListener("click", () => Session.signIn().then(() => { location.hash = "#home"; }, err => { $("startNote").textContent = "Sign-in failed: " + err.message; }));
+
 document.querySelectorAll("[data-range]").forEach(b => b.addEventListener("click", () => {
   state.mediaRange = b.dataset.range;
-  try { localStorage.setItem("sentinel-media-range", state.mediaRange); } catch (e) {}
+  try { localStorage.setItem("sentinel-media-range", state.mediaRange); } catch (e) { /* storage blocked */ }
   renderDashboard();
 }));
 $("showDemo").addEventListener("change", e => { state.showDemo = e.target.checked; renderDashboard(); });
-setInterval(() => { if (!$("screen-dashboard").hidden) renderDashboard(); }, 60000);   // keep the live chart's time window moving
+setInterval(() => { renderDashboard(); }, 60000);   // keep time windows moving
 $("lineageSite").addEventListener("change", e => { state.lineageSite = e.target.value; renderGenomics(); });
 
 const wk = mmwrWeek(todayStr());
@@ -2937,16 +3165,17 @@ buildForm();
 buildResearchForm();
 renderRules();
 renderQR();
-renderDashboard();
 
-// Open the tab from the link (#dashboard) or the one used last time.
-let startTab = (location.hash || "").slice(1);
-if (SUBS.includes(startTab)) { showScreen("dashboard", true); showSub(startTab); startTab = null; }
-else if (!["report", "dashboard", "method"].includes(startTab)) {
-  try { startTab = localStorage.getItem("sentinel-tab") || "report"; } catch (e) { startTab = "report"; }
-}
-if (startTab !== null) showScreen(["report", "dashboard", "method"].includes(startTab) ? startTab : "report");
-
+let lastRole = undefined;
+Session.onChange(s => {
+  const key = s ? s.mode + "|" + s.role + "|" + (s.email || "") : "";
+  if (key !== lastRole) { lastRole = key; loadLab(); }
+  if (Session.problem() && !s) $("startNote").textContent = "Sign-in is unavailable here (" + Session.problem() + ") The demo still works.";
+  $("startSignIn").disabled = !Session.auth();
+  route();
+  renderDashboard();
+});
+Session.init();
 connectDatabase();
 </script>
 </body>

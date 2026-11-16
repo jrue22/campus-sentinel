@@ -1,0 +1,152 @@
+<!doctype html>
+<html lang="en">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1, viewport-fit=cover">
+<title>Sentinel Demo Data</title>
+<meta name="robots" content="noindex">
+<meta name="theme-color" content="#8C1D40">
+<link rel="icon" type="image/png" href="icon-192.png">
+<link rel="preconnect" href="https://fonts.googleapis.com">
+<link rel="preconnect" href="https://fonts.gstatic.com" crossorigin>
+<link rel="stylesheet" href="https://fonts.googleapis.com/css2?family=Archivo:wdth,wght@75..100,500..800&family=IBM+Plex+Sans:wght@400;500;600&family=IBM+Plex+Mono:wght@400;500&display=swap">
+<link rel="stylesheet" href="app.css?v=1">
+<style>
+  #log { font: 0.82rem/1.5 var(--f-mono); white-space: pre-wrap; background: var(--surface-2); border-radius: 8px; padding: 12px; min-height: 4em; max-height: 340px; overflow: auto; }
+  .what { display: grid; grid-template-columns: repeat(auto-fit, minmax(230px, 1fr)); gap: 8px 16px; }
+</style>
+</head>
+<body>
+<div class="wrap">
+  <header class="appbar">
+    <a class="brand" href="./#home">
+      <div class="mark" aria-hidden="true"><svg viewBox="0 0 24 24" fill="none" stroke="#FFC627" stroke-width="2.2" stroke-linecap="round" stroke-linejoin="round"><path d="M2 13h4l2-6 4 12 3-9 2 3h5"/></svg></div>
+      <div><h1>Campus Sentinel</h1><div class="sub">Demo data</div></div>
+    </a>
+    <nav class="topnav" aria-label="Main"><a href="./#home">Home</a><a href="./#report">Report</a><a href="lab.html">Lab</a></nav>
+    <div class="session" id="session"></div>
+  </header>
+
+  <main>
+    <div class="prose" style="display:grid;gap:8px;max-width:70ch">
+      <h2>Refresh the example data</h2>
+      <p class="muted">One button deletes the old example data and writes a fresh set dated around today, so the dashboard, the lab portal and the news timeline all line up for a demo. Only records marked as example data (demo: true) are touched; real reports are never deleted.</p>
+    </div>
+
+    <div class="panel">
+      <div class="panel-head"><h3>What to refresh</h3><span class="eyebrow" id="who"></span></div>
+      <div class="what">
+        <label class="check"><input type="checkbox" data-part="reports" checked> Symptom reports (38)</label>
+        <label class="check"><input type="checkbox" data-part="wastewater" checked> Wastewater samples (13 dates × 5 sites × 8 targets)</label>
+        <label class="check"><input type="checkbox" data-part="lineages" checked> SARS-CoV-2 lineages (8 weeks × 4 sites)</label>
+        <label class="check"><input type="checkbox" data-part="media" checked> Social posts and news stories (26)</label>
+        <label class="check"><input type="checkbox" data-part="lab" checked> Lab portal patients and results (21 patients)</label>
+        <label class="check"><input type="checkbox" data-part="feed"> Also clear the demo feed posts classmates wrote</label>
+      </div>
+      <div class="row">
+        <button class="btn" id="signInBtn" hidden>Sign in with Google</button>
+        <button class="btn" id="refresh" disabled>Refresh example data</button>
+        <button class="btn ghost" id="clear" disabled>Remove example data only</button>
+      </div>
+      <p class="hint" id="needs">Sign in with an account listed in firestore.rules (isLabUploader for the surveillance data, isClinician for the lab data).</p>
+      <div id="log">Ready.</div>
+    </div>
+
+    <div class="panel">
+      <h3>No database? No problem</h3>
+      <p class="muted">The demo on the start page also works without this step: if the database can't be reached, the app builds the same example data in your browser for that visit.</p>
+      <div class="row"><a class="btn small ghost" href="./#start">Back to the start page</a></div>
+    </div>
+
+    <footer class="site-foot">
+      <nav><a href="./#method">How it works</a><a href="./#live">Live demo</a><a href="demo-data.html">Demo data</a></nav>
+      <p>Class project (ASU BMI 461), not an official ASU service. All example data is made up.</p>
+    </footer>
+  </main>
+</div>
+
+<script src="https://www.gstatic.com/firebasejs/10.12.2/firebase-app-compat.js"></script>
+<script src="https://www.gstatic.com/firebasejs/10.12.2/firebase-auth-compat.js"></script>
+<script src="https://www.gstatic.com/firebasejs/10.12.2/firebase-firestore-compat.js"></script>
+<script src="firebase-config.js?v=5"></script>
+<script src="wastewater-config.js?v=5"></script>
+<script src="lab-config.js?v=2"></script>
+<script src="lab-demo.js?v=2"></script>
+<script src="lab-core.js?v=1"></script>
+<script src="demo-data.js?v=1"></script>
+<script src="session.js?v=1"></script>
+<script>
+"use strict";
+const $ = id => document.getElementById(id);
+const log = m => { $("log").textContent += "\n" + m; $("log").scrollTop = 1e9; };
+let busy = false;
+
+Session.onChange(s => {
+  const live = s && s.mode === "live";
+  $("refresh").disabled = $("clear").disabled = !live || busy;
+  $("who").textContent = live ? "Signed in as " + s.email : "";
+  $("needs").hidden = live;
+  $("signInBtn").hidden = live || !!Session.problem();
+  if (!live) $("log").textContent = Session.problem()
+    ? "The database isn't reachable (" + Session.problem() + ")\nThe demo still works without it."
+    : "Sign in first (top right). A demo role can't change the database.";
+});
+Session.init();
+$("signInBtn").addEventListener("click", () => Session.signIn().catch(err => log("Sign-in failed: " + err.message)));
+
+const parts = () => new Set([...document.querySelectorAll("[data-part]:checked")].map(c => c.dataset.part));
+
+async function commit(ops) {                // Firestore allows 500 writes per batch
+  const db = Session.db();
+  for (let i = 0; i < ops.length; i += 400) { const b = db.batch(); ops.slice(i, i + 400).forEach(op => op(b)); await b.commit(); }
+}
+async function removeDemo(col) {
+  const db = Session.db();
+  const snap = await db.collection(col).where("demo", "==", true).get();
+  await commit(snap.docs.map(d => b => b.delete(d.ref)));
+  log(`  ${col}: removed ${snap.size}`);
+}
+function explain(err, col) {
+  return err.code === "permission-denied"
+    ? `the database refused (${col}). Check that ${Session.current().email} is in ${/^lab_/.test(col) ? "isClinician()" : "isLabUploader()"} in firestore.rules, and that the latest rules are published.`
+    : err.message;
+}
+
+async function run(write) {
+  busy = true; $("refresh").disabled = $("clear").disabled = true;
+  const p = parts(), db = Session.db();
+  $("log").textContent = (write ? "Refreshing" : "Removing") + " example data…";
+  const steps = [
+    ["reports", ["reports"], () => commit(DemoData.reports().map(r => b => b.set(db.collection("reports").doc(), r)))],
+    ["wastewater", ["wastewater"], () => commit(DemoData.wastewater().map(d => b => b.set(db.collection("wastewater").doc(DemoData.wastewaterId(d)), d)))],
+    ["lineages", ["lineages"], () => commit(DemoData.lineages().map(d => b => b.set(db.collection("lineages").doc(DemoData.lineageId(d)), d)))],
+    ["media", ["media_extracted"], () => commit(DemoData.media().map((m, i) => b => b.set(db.collection("media_extracted").doc("demo-m" + i), m)))],
+    ["lab", ["lab_results", "lab_patients", "lab_deid"], async () => {
+      const { patients, results } = DemoData.lab();
+      const ctx = LabCore.analysisContext(results, patients);
+      await commit([
+        ...patients.map(x => b => b.set(db.collection("lab_patients").doc(x.id), x)),
+        ...results.map(x => b => b.set(db.collection("lab_results").doc(x.id), x)),
+        ...results.filter(r => r.status === "signed").map(r => b => b.set(db.collection("lab_deid").doc("demo-" + r.id),
+          LabCore.deidentify(r, patients.find(x => x.id === r.patientId), LabCore.interpret(r, ctx)))),
+      ]);
+    }],
+    ["feed", ["media_posts"], null],
+  ];
+  let failed = 0;
+  for (const [part, cols, writer] of steps) {
+    if (!p.has(part)) continue;
+    let col = cols[0];
+    try {
+      for (col of cols) await removeDemo(col);
+      if (write && writer) { await writer(); log(`  ${part}: new example data written`); }
+    } catch (err) { failed++; log(`  ${part}: stopped, ${explain(err, col)}`); }
+  }
+  log(failed ? `\nFinished with ${failed} problem(s) above.` : "\nDone. Open the dashboard: " + location.href.replace(/demo-data\.html.*$/, "#home"));
+  busy = false; $("refresh").disabled = $("clear").disabled = !(Session.current() && Session.current().mode === "live");
+}
+$("refresh").addEventListener("click", () => run(true));
+$("clear").addEventListener("click", () => { if (confirm("Remove all example data from the database?")) run(false); });
+</script>
+</body>
+</html>
