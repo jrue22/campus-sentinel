@@ -15,7 +15,7 @@ window.LAB_CONFIG = {
   // Google accounts that sign in as clinicians (see and add every patient's results).
   clinicians: ["drewgordon9@gmail.com"],
   // Google accounts that sign in as researchers (de-identified data only).
-  researchers: [],
+  researchers: [drewgordon9@gmail.com],
   // Everyone else who signs in is treated as a patient and sees only records
   // whose ownerEmail is their own address, and only after a clinician signs them.
 
