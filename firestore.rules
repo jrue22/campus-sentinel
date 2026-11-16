@@ -56,7 +56,7 @@ service cloud.firestore {
     function isLabUploader() {
       return request.auth != null
         && request.auth.token.email_verified == true
-        && request.auth.token.email in ['YOUR-EMAIL@asu.edu'];
+        && request.auth.token.email in ['drewgordon9@gmail.com'];
     }
 
     // One SARS-CoV-2 sequencing result: lineage shares for one site and date (from Freyja).
@@ -120,10 +120,10 @@ service cloud.firestore {
       return request.auth != null && request.auth.token.email_verified == true;
     }
     function isClinician() {
-      return signedIn() && request.auth.token.email in ['YOUR-EMAIL@asu.edu'];
+      return signedIn() && request.auth.token.email in ['drewgordon9@gmail.com'];
     }
     function isResearcher() {
-      return signedIn() && request.auth.token.email in ['YOUR-EMAIL@asu.edu'];
+      return signedIn() && request.auth.token.email in ['drewgordon9@gmail.com'];
     }
     function ownsIt() {
       return signedIn() && resource.data.ownerEmail == request.auth.token.email;
