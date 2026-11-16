@@ -6,7 +6,8 @@
 
    Two ways in:
      - Sign in with Google. Your role comes from the email lists in
-       lab-config.js (clinicians, researchers); everyone else is a Student.
+       lab-config.js (clinicians, researchers); everyone else at ASU is Campus community
+       (students, faculty and staff).
        The real protection is in firestore.rules, which checks the same lists.
      - Demo: pick a role, no account needed. Remembered for this browser
        tab only (sessionStorage), and only example data is shown or changed.
@@ -14,7 +15,7 @@
 window.Session = (function () {
   "use strict";
   const KEY = "sentinel-session";
-  const NAMES = { student: "Student", clinician: "Clinician", researcher: "Researcher" };
+  const NAMES = { community: "Campus community", clinician: "Clinician", researcher: "Researcher" };
   let current = null;            // { mode: "demo" | "live", role, email, name, demoPatientId }
   let auth = null, db = null, problem = null, started = false;
   const listeners = [];
@@ -26,7 +27,7 @@ window.Session = (function () {
   function roleFor(email) {
     const e = String(email || "").toLowerCase(), C = window.LAB_CONFIG || {};
     const has = list => (list || []).map(x => String(x).toLowerCase()).includes(e);
-    return has(C.clinicians) ? "clinician" : has(C.researchers) ? "researcher" : "student";
+    return has(C.clinicians) ? "clinician" : has(C.researchers) ? "researcher" : "community";
   }
   function getConfig() {
     if (window.FIREBASE_CONFIG) return window.FIREBASE_CONFIG;
@@ -46,6 +47,7 @@ window.Session = (function () {
       if (firebase.auth) auth = firebase.auth();
     }
     const saved = read();
+    if (saved && saved.role === "student") saved.role = "community";   // sessions saved before the rename
     if (saved && saved.mode === "demo" && NAMES[saved.role]) current = saved;
     if (auth) {
       auth.onAuthStateChanged(user => {
@@ -59,7 +61,8 @@ window.Session = (function () {
 
   function startDemo(role) {
     const old = read() || {};
-    current = { mode: "demo", role: NAMES[role] ? role : "student", demoPatientId: old.demoPatientId || null };
+    if (role === "student") role = "community";         // older links used "student"
+    current = { mode: "demo", role: NAMES[role] ? role : "community", demoPatientId: old.demoPatientId || null };
     write(current); emit();
   }
   function setDemoPatient(id) { if (current && current.mode === "demo") { current.demoPatientId = id; write(current); } }

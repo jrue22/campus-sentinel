@@ -48,8 +48,8 @@ const catName = c => ({ viral: "Viral", bacterial: "Bacterial", parasitic: "Para
      level       positive / negative / discuss
      syndrome, category, pathogens    (the same ids as the surveillance dashboard)
      flags       [{level: "alert" | "discuss" | "info", text}]
-                 "discuss" = the result needs a clinician's judgment before signing
-                 (like the paper's "need discussion" list for the Molecular Biology Board)
+                 "discuss" = the result needs a clinician's review before signing
+                 (shown as "Needs review"; like the paper's "need discussion" list for the Molecular Biology Board)
      plain       plain-language sentences for the patient
    ctx holds what a rule needs from other results: the same patient's other
    tests, genome clusters, and wastewater lineages.
@@ -241,10 +241,10 @@ function genomeClusters(genomes) {
   return out;
 }
 
-// What a result looks like on a worklist: status + whether it needs discussion.
+// What a result looks like on a worklist: status + whether it needs review.
 function statusOf(r, it) {
   if (r.status === "signed") return { key: "signed", label: "Signed", cls: "ok-p" };
-  if (it.needsDiscussion) return { key: "discuss", label: "Needs discussion", cls: "watch-p" };
+  if (it.needsDiscussion) return { key: "discuss", label: "Needs review", cls: "watch-p" };
   return { key: "ready", label: "Ready to sign", cls: "plain-p" };
 }
 

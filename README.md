@@ -2,11 +2,11 @@
 
 Campus health surveillance in one app: anonymous symptom reports, wastewater testing, news and social posts, and clinic lab results. Class project, not an official ASU service.
 
-**How it's organized.** One start page: sign in with Google, or try the demo as a Student, Clinician or Researcher. Each role gets its own home page:
+**How it's organized.** One start page: sign in with Google, or try the demo as Campus community (students, faculty and staff), Clinician or Researcher. Each role gets its own home page:
 
 | Role | Home page | Lab page |
 |---|---|---|
-| Student | Campus status (calm / watch / outbreak), what's going around with plain advice, report symptoms, my lab results | Own signed results, printable |
+| Campus community (students, faculty, staff) | Campus status (calm / watch / outbreak), what's going around with plain advice, report symptoms, my lab results | Own signed results, printable |
 | Clinician | Notable trends, **Outlook** (predicted spikes for the next 7 days), lab summary, where the signals agree | Worklist, patients, import, outbreak analysis, technical reports |
 | Researcher | Every source in detail: symptoms, wastewater map and lead time, genomics, social and news, data export | De-identified lab data and CSV export |
 
@@ -20,7 +20,7 @@ This project and associated documentation was generated with Anthropic’s Claud
 
 | File | What it does |
 |---|---|
-| `index.html` | Start page, role home pages (student, clinician, researcher), symptom report, how it works, live-demo QR codes |
+| `index.html` | Start page, role home pages (campus community, clinician, researcher), symptom report, how it works, live-demo QR codes |
 | `app.css` | Shared look for every page (colors, header, footer, panels, tables, forms) |
 | `session.js` | Who is using the app: Google sign-in or a demo role, shared by every page |
 | `demo-data.html` | **One page to refresh all example data** (reports, wastewater, lineages, posts, news, lab) with dates around today |
@@ -143,7 +143,7 @@ Notes:
 
 ## Lab page (lab.html)
 
-The Lab tab on every page. Students see their own reviewed results, **clinicians** work with clinic lab results, and **researchers** see de-identified totals. It is modeled on the KDI system in Servant et al., *Bioinformatics for precision medicine in oncology: principles and application to the SHIVA clinical trial* (Front. Genet. 2014), scaled to a campus clinic.
+The Lab tab on every page. Campus community members see their own reviewed results, **clinicians** work with clinic lab results, and **researchers** see de-identified totals. It is modeled on the KDI system in Servant et al., *Bioinformatics for precision medicine in oncology: principles and application to the SHIVA clinical trial* (Front. Genet. 2014), scaled to a campus clinic.
 
 **Use synthetic data only.** This is a class project. Real patient data would need institutional approval (privacy office, IRB) and a HIPAA-covered setup.
 
@@ -151,9 +151,9 @@ The Lab tab on every page. Students see their own reviewed results, **clinicians
 |---|---|
 | Integrates clinical, IHC, microarray and NGS data in one system | PCR panels, cultures with susceptibility, viral genomes and bacterial genomes in one record per patient |
 | Pipelines (alignment, variant calling, copy number) produce results | Standard tools run elsewhere (Nextclade, AMRFinderPlus, mlst, chewBBACA); the portal imports their output files |
-| Filters on frequency, coverage and strand ratio; "need discussion" list | Rules flag late PCR detections, low genome coverage, partial gene matches, co-detections and genome/culture disagreements as **Needs discussion** |
+| Filters on frequency, coverage and strand ratio; "need discussion" list | Rules flag late PCR detections, low genome coverage, partial gene matches, co-detections and genome/culture disagreements as **Needs review** |
 | Report for the Molecular Biology Board (patient info, color-coded summary, details) | Printable **technical report** for clinicians and a plain-language **patient summary** |
-| Bioinfo-Board tracks each patient's progress | **Worklist**: every result's status (needs discussion, ready to sign, signed) |
+| Bioinfo-Board tracks each patient's progress | **Worklist**: every result's status (needs review, ready to sign, signed) |
 | Controlled access, anonymous identifiers, traceability | Role-based Firestore rules, patient codes, and a record of who imported and signed each result |
 
 **Roles**
@@ -162,7 +162,7 @@ The Lab tab on every page. Students see their own reviewed results, **clinicians
 |---|---|---|
 | Clinician | Emails in `isClinician()` (firestore.rules) and `LAB_CONFIG.clinicians` (lab-config.js) | Every patient; worklist; import; outbreak analysis; technical reports |
 | Researcher | Emails in `isResearcher()` and `LAB_CONFIG.researchers` | De-identified results only (collection week, age band, campus; counts under 5 hidden) |
-| Student (patient) | Anyone else who signs in | Only their own record, only signed results, in plain language, with a print button |
+| Campus community (patient) | Anyone else who signs in | Only their own record, only signed results, in plain language, with a print button |
 
 A clinician links a patient's record to their Google email on the patient page. Signing a result also writes a de-identified copy (`lab_deid`) for researchers.
 
@@ -177,13 +177,13 @@ A clinician links a patient's record to their Google email on the patient page. 
 
 **Rules** (thresholds are in `lab-config.js`)
 
-- PCR detection with Ct above 35, or more than one target detected: needs discussion.
-- Viral genome coverage under 90%, or Nextclade QC "bad": needs discussion.
-- Resistance gene hit under 90% identity or 90% coverage: needs discussion (partial match).
-- Genome predicts resistance but the culture says susceptible: needs discussion.
+- PCR detection with Ct above 35, or more than one target detected: needs review.
+- Viral genome coverage under 90%, or Nextclade QC "bad": needs review.
+- Resistance gene hit under 90% identity or 90% coverage: needs review (partial match).
+- Genome predicts resistance but the culture says susceptible: needs review.
 - Not susceptible in 3 or more drug categories: multidrug resistant (Magiorakos et al. 2012). Resistance to 3rd-generation cephalosporins in E. coli or Klebsiella: possible ESBL.
 - Two isolates of the same species differing at 5 or fewer cgMLST loci: likely the same outbreak strain.
-- A result that needs discussion can only be signed with a note explaining the decision.
+- A result that needs review can only be signed with a note explaining the decision.
 
 **Setup**
 
@@ -192,7 +192,7 @@ A clinician links a patient's record to their Google email on the patient page. 
 3. Upload `lab.html`, `lab-app.js`, `lab-config.js` and `lab-demo.js` next to `index.html`.
 4. Open `lab.html`, sign in as a clinician, Patients tab → **Add demo patients**. To show a patient login, type a classmate's Google email on one demo patient's page; when they sign in, they see that patient's signed results.
 
-No account needed for the demo: pick a role on the start page (or open `index.html#demo-clinician`, `#demo-student` or `#demo-researcher`). Lab changes made in the demo (signing, imports) are kept for that browser tab and show up on the home page too.
+No account needed for the demo: pick a role on the start page (or open `index.html#demo-clinician`, `#demo-community` or `#demo-researcher`). Lab changes made in the demo (signing, imports) are kept for that browser tab and show up on the home page too.
 
 ## Running the live demo
 
@@ -226,7 +226,7 @@ Shared by every page: `app.css` (look), `session.js` (roles), `lab-config.js` an
 3. **Cluster detection**: counts by residence and campus over a 7-day window
 4. **Data storage**: Firebase `add()` to save and `onSnapshot()` for live updates
 5. **Survey form**
-6. **Dashboard rendering**, including a hand-drawn SVG epidemic curve; 6b is the research export (filtering, CSV and ZIP files); 6c is the student and clinician home pages, including the Outlook (predicted spikes)
+6. **Dashboard rendering**, including a hand-drawn SVG epidemic curve; 6b is the research export (filtering, CSV and ZIP files); 6c is the campus community and clinician home pages, including the Outlook (predicted spikes)
 7. **Startup**: which page to show for the address and role
 
 Only section 4 talks to Firebase (including `fetchResearchData()` for the research export). Switching to another database means rewriting just that section.

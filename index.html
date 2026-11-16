@@ -22,7 +22,7 @@
   or which demo role), lab-config.js + lab-core.js (lab rules), demo-data.js.
   This file has three parts:
     1. <style>   styles for this page only
-    2. HTML      the screens: Start, Student home, Clinician home, Researcher
+    2. HTML      the screens: Start, Campus community home, Clinician home, Researcher
                  home (tabbed dashboard), Report, Live demo, How it works
     3. <script>  the logic, split into numbered sections:
                  1 Config (campuses, residences, symptoms)
@@ -235,13 +235,13 @@ a.news-title:hover { text-decoration-color: currentColor; }
       <div class="hero">
         <span class="eyebrow">ASU campus health · class project</span>
         <h2>See what's going around campus, and help catch outbreaks early.</h2>
-        <p class="muted">Anonymous symptom reports, wastewater testing, news and social posts, and clinic lab results, in one place. Each person sees what they need: students the essentials, clinicians the trends, researchers everything.</p>
+        <p class="muted">Anonymous symptom reports, wastewater testing, news and social posts, and clinic lab results, in one place. Each person sees what they need: the campus community the essentials, clinicians the trends, researchers everything.</p>
       </div>
       <div class="cards">
         <div class="panel start-card">
           <span class="eyebrow">With your account</span>
           <h3>Sign in</h3>
-          <p class="muted">Students see campus health and their own lab results. Clinicians and researchers on the approved list get their tools automatically.</p>
+          <p class="muted">Students, faculty and staff see campus health and their own lab results. Clinicians and researchers on the approved list get their tools automatically.</p>
           <div><button class="btn" id="startSignIn">Sign in with Google</button></div>
           <p class="hint" id="startNote"></p>
         </div>
@@ -249,7 +249,7 @@ a.news-title:hover { text-decoration-color: currentColor; }
           <span class="eyebrow">No account needed</span>
           <h3>Try the demo</h3>
           <div class="role-pick">
-            <button type="button" data-demo="student"><b>Student</b><span>Campus status, what to watch for, my lab results</span></button>
+            <button type="button" data-demo="community"><b>Campus community</b><span>Students, faculty and staff: campus status, what to watch for, my lab results</span></button>
             <button type="button" data-demo="clinician"><b>Clinician</b><span>Clinical trends, predicted spikes, lab review</span></button>
             <button type="button" data-demo="researcher"><b>Researcher</b><span>Every data source in detail, and exports</span></button>
           </div>
@@ -259,8 +259,8 @@ a.news-title:hover { text-decoration-color: currentColor; }
       <p class="start-report"><a href="#report">Just want to report symptoms? No sign-in needed &rarr;</a></p>
     </section>
 
-    <!-- ===================== STUDENT HOME: the essentials ===================== -->
-    <section class="screen" id="screen-home-student" data-screen="home-student" hidden>
+    <!-- ===================== CAMPUS COMMUNITY HOME: the essentials (students, faculty, staff) ===================== -->
+    <section class="screen" id="screen-home-community" data-screen="home-community" hidden>
       <div class="hello">
         <span class="eyebrow">Campus health · this week</span>
         <h2 id="stuHeadline">Loading…</h2>
@@ -641,8 +641,8 @@ a.news-title:hover { text-decoration-color: currentColor; }
           <li><b>Track SARS-CoV-2 lineages.</b> Sequencing results (lineage shares from a tool like Freyja) are shown as a stacked bar per sample. Diversity is the Shannon index, H = −Σ p ln p, shown as e<sup>H</sup>, the effective number of lineages.</li>
           <li><b>Export for research.</b> The Research tab filters every source by syndrome, place and date and downloads the matching rows as CSV, with a data dictionary and a record of the filters. Wastewater targets follow their linked syndromes; posts and stories follow the place their text names.</li>
           <li><b>Predict spikes (clinician outlook).</b> For each syndrome and campus, a growth rate is fitted to the last 7 days of reports (a straight line through the logarithm of daily counts), and the next 7 days are projected from it, capped at 3× this week. A wastewater rise for the matching pathogen counts as a second signal; when reports haven't caught up yet, the expected delay is the median lead time measured on this campus. Recent posts and news, and lab-confirmed patients, add confidence: 4 or more points is high, 2–3 moderate, 1 low. These are simple planning projections, not validated forecasts.</li>
-          <li><b>Lab results.</b> The Lab page (<a href="lab.html">lab.html</a>) holds clinic results: PCR panels, cultures with antibiotic susceptibility, and viral and bacterial genomes. Rules flag results that need discussion, a clinician signs them, students see their own signed results, and researchers get de-identified totals. Modeled on the KDI system of Servant et al. (Front. Genet. 2014). Synthetic data only.</li>
-          <li><b>One app, three views.</b> Students see their campus status, what's going around and what to do. Clinicians see notable trends, the outlook and the lab worklist. Researchers see every source in detail with exports. Everyone can report symptoms. Roles come from the sign-in email (lists in lab-config.js and firestore.rules), or are picked in the demo.</li>
+          <li><b>Lab results.</b> The Lab page (<a href="lab.html">lab.html</a>) holds clinic results: PCR panels, cultures with antibiotic susceptibility, and viral and bacterial genomes. Rules flag results that need review, a clinician signs them, community members see their own signed results, and researchers get de-identified totals. Modeled on the KDI system of Servant et al. (Front. Genet. 2014). Synthetic data only.</li>
+          <li><b>One app, three views.</b> The campus community (students, faculty and staff) sees campus status, what's going around and what to do. Clinicians see notable trends, the outlook and the lab worklist. Researchers see every source in detail with exports. Everyone can report symptoms. Roles come from the sign-in email (lists in lab-config.js and firestore.rules), or are picked in the demo.</li>
         </ol>
       </div>
       <div class="panel">
@@ -686,9 +686,9 @@ a.news-title:hover { text-decoration-color: currentColor; }
 <!-- Roles, lab rules and example data (shared with lab.html and demo-data.html) -->
 <script src="lab-config.js?v=2"></script>
 <script src="lab-demo.js?v=2"></script>
-<script src="lab-core.js?v=1"></script>
+<script src="lab-core.js?v=2"></script>
 <script src="demo-data.js?v=1"></script>
-<script src="session.js?v=1"></script>
+<script src="session.js?v=2"></script>
 
 <script>
 /* =====================================================================
@@ -1778,7 +1778,7 @@ function renderDashboard() {
   // The role home pages use the same numbers
   const ctx = { reports, week, prev, clusters, wwSignals, media, news, socialAll, newsAll, agree };
   const role = (Session.current() || {}).role;
-  if (role === "student") renderStudentHome(ctx);
+  if (role === "community") renderCommunityHome(ctx);
   if (role === "clinician") renderClinicianHome(ctx);
 }
 
@@ -2909,7 +2909,7 @@ async function downloadResearch(what) {
 /* =====================================================================
    6c. ROLE HOME PAGES
    Each role gets its own home page built from the same numbers:
-     Student     the essentials: is my campus OK, what's going around, what to do
+     Campus community   (students, faculty, staff) the essentials: is my campus OK, what's going around, what to do
      Clinician   notable trends, an outlook of predicted spikes, and lab review
      Researcher  every source in detail (the tabbed dashboard above)
    ===================================================================== */
@@ -2918,7 +2918,7 @@ const HOME_CAMPUSES = CAMPUSES.filter(c => c.id !== "online");
 const reportCampus = r => residenceCampus[r.residence] || (r.campuses || []).find(c => c !== "online") || null;
 const clusterCampus = c => c.residenceId ? residenceCampus[c.residenceId] : c.campusId;
 const PLAIN = { ili: "flu-like illness", resp: "colds and other respiratory illness", gi: "stomach illness", skin: "rashes", neuro: "meningitis-like illness", other: "general illness" };
-// Short, practical advice for students. General public-health guidance, not medical advice.
+// Short, practical advice for the campus community. General public-health guidance, not medical advice.
 const TIPS = {
   gi: "Wash hands with soap and water (hand sanitizer doesn't kill norovirus). Don't share food or drinks, and stay home for 2 days after vomiting or diarrhea stop.",
   ili: "Cover coughs, wash your hands, and stay home until you've been fever-free for 24 hours without medicine. A flu shot still helps.",
@@ -2941,14 +2941,14 @@ function loadLab() {
   } else if (db && s.role === "clinician") {
     const sub = (col, key) => lab.unsub.push(db.collection(col).onSnapshot(snap => { lab[key] = snap.docs.map(d => ({ id: d.id, ...d.data() })); renderDashboard(); }, () => {}));
     sub("lab_patients", "patients"); sub("lab_results", "results");
-  } else if (db && s.role === "student") {
+  } else if (db && s.role === "community") {
     lab.unsub.push(db.collection("lab_results").where("ownerEmail", "==", s.email).where("status", "==", "signed")
       .onSnapshot(snap => { lab.results = snap.docs.map(d => ({ id: d.id, ...d.data() })); renderDashboard(); }, () => {}));
   }
 }
 
-// ---------- Student ----------
-function renderStudentHome(ctx) {
+// ---------- Campus community ----------
+function renderCommunityHome(ctx) {
   const { week, prev, clusters, wwSignals } = ctx;
   const status = HOME_CAMPUSES.map(cp => {
     const cl = clusters.filter(c => clusterCampus(c) === cp.id).sort((a, b) => (b.level === "alert") - (a.level === "alert") || b.count - a.count);
@@ -3062,7 +3062,7 @@ function renderClinicianHome(ctx) {
     kpi("Reports, 7 days", week.length, pct === null ? `<span class="muted">no prior week</span>` : `<span class="${change > 0 ? "up" : "down"}">${change >= 0 ? "▲" : "▼"} ${Math.abs(pct)}% vs prior week</span>`),
     kpi("Clusters", clusters.length, `<span class="muted">${alerts} alert · ${clusters.length - alerts} watch</span>`),
     kpi("Wastewater rises", wwUp.length, `<span class="muted">${wwUp.filter(s => s.level === "alert").length} high</span>`),
-    kpi("Lab to review", discuss + ready, `<span class="${discuss ? "up" : "muted"}">${discuss} need discussion</span>`),
+    kpi("Lab to sign", discuss + ready, `<span class="${discuss ? "up" : "muted"}">${discuss} need review</span>`),
   ].join("");
   $("cliOutlook").innerHTML = items.length ? items.slice(0, 5).map(o => {
     const syn = syndromeById[o.syn], cp = campusName[o.campus] || o.campus;
@@ -3091,7 +3091,7 @@ function renderClinicianHome(ctx) {
   its.filter(x => x.r.collected >= since && x.it.level !== "negative").forEach(x => x.it.pathogens.forEach(pg => { pos[pg] = (pos[pg] || 0) + 1; }));
   const gc = LabCore.genomeClusters(ctxL.genomes), resist = its.filter(x => x.r.kind === "culture" && x.it.flags.some(f => /MDR|ESBL|Carbapenem/.test(f.text))).length;
   $("cliLab").innerHTML = lab.results.length ? `
-    <div class="lab-mini"><a href="lab.html"><b>${discuss}</b><span>need discussion</span></a><a href="lab.html"><b>${ready}</b><span>ready to sign</span></a><a href="lab.html"><b>${gc.length}</b><span>genomic cluster${gc.length === 1 ? "" : "s"}</span></a><a href="lab.html"><b>${resist}</b><span>resistant organism${resist === 1 ? "" : "s"}</span></a></div>
+    <div class="lab-mini"><a href="lab.html"><b>${discuss}</b><span>need review</span></a><a href="lab.html"><b>${ready}</b><span>ready to sign</span></a><a href="lab.html"><b>${gc.length}</b><span>genomic cluster${gc.length === 1 ? "" : "s"}</span></a><a href="lab.html"><b>${resist}</b><span>resistant organism${resist === 1 ? "" : "s"}</span></a></div>
     <span class="eyebrow">Positive, last 14 days</span>
     <div class="chipline">${Object.entries(pos).sort((a, b) => b[1] - a[1]).slice(0, 8).map(([k, n]) => `<span class="chip">${esc(k)} × ${n}</span>`).join("") || '<span class="muted">none</span>'}</div>`
     : `<p class="muted">No lab results yet.</p>`;
@@ -3123,7 +3123,7 @@ document.querySelectorAll("[data-sub]").forEach(b => b.addEventListener("click",
 function showScreen(name) {
   document.querySelectorAll("section[data-screen]").forEach(s => { s.hidden = s.dataset.screen !== name; });
   document.body.dataset.view = name;             // e.g. hides the data notice on the start page
-  const nav = name === "report" ? "report" : ["start", "home-student", "home-clinician", "research"].includes(name) ? "home" : null;
+  const nav = name === "report" ? "report" : ["start", "home-community", "home-clinician", "research"].includes(name) ? "home" : null;
   document.querySelectorAll("[data-nav]").forEach(a => { if (a.dataset.nav === nav) a.setAttribute("aria-current", "page"); else a.removeAttribute("aria-current"); });
   if (name === "research") {
     let sub = "overview";
@@ -3134,10 +3134,10 @@ function showScreen(name) {
 
 // Which page to show, from the address and the current role.
 function route() {
-  const demo = (location.hash || "").match(/^#demo-(student|clinician|researcher)$/);   // e.g. index.html#demo-clinician
+  const demo = (location.hash || "").match(/^#demo-(community|student|clinician|researcher)$/);   // e.g. index.html#demo-clinician
   if (demo) { history.replaceState(null, "", "#home"); Session.startDemo(demo[1]); return; }   // startDemo calls route() again
   const h = (location.hash || "#home").slice(1), s = Session.current();
-  const home = !s ? "start" : s.role === "student" ? "home-student" : s.role === "clinician" ? "home-clinician" : "research";
+  const home = !s ? "start" : s.role === "community" ? "home-community" : s.role === "clinician" ? "home-clinician" : "research";
   if (["report", "method", "live", "start"].includes(h)) showScreen(h);
   else if (SUBS.includes(h) && s && s.role === "researcher") { showScreen("research"); showSub(h); }
   else showScreen(home);

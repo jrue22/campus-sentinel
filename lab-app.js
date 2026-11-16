@@ -250,21 +250,21 @@ function renderWorklist() {
   const fbtn = (k, label) => `<button type="button" data-wl="${k}" aria-pressed="${state.worklistFilter === k}">${label}</button>`;
   $("ctab-worklist").innerHTML = `
     <div class="kpis">
-      ${kpi("Needs discussion", counts.discuss, "flagged by the rules")}
+      ${kpi("Needs review", counts.discuss, "flagged by the rules")}
       ${kpi("Ready to sign", counts.ready, "no flags")}
       ${kpi("Signed", counts.signed, "visible to patients")}
       ${kpi("Positive, last 7 days", posWeek, "by collection date")}
     </div>
     <div class="panel">
       <div class="panel-head"><h3>Worklist</h3>
-        <span class="seg" role="group" aria-label="Filter">${fbtn("open", "To review")}${fbtn("discuss", "Needs discussion")}${fbtn("ready", "Ready")}${fbtn("signed", "Signed")}${fbtn("all", "All")}</span></div>
+        <span class="seg" role="group" aria-label="Filter">${fbtn("open", "All unsigned")}${fbtn("discuss", "Needs review")}${fbtn("ready", "Ready")}${fbtn("signed", "Signed")}${fbtn("all", "All")}</span></div>
       ${rows.length ? `<div class="table-box"><table><thead><tr><th>Collected</th><th>Patient</th><th>Test</th><th>Finding</th><th>Status</th></tr></thead><tbody>${
         rows.map(r => { const i = it(r), s = statusOf(r, i); return `<tr class="clickable" data-open="${esc(r.id)}" tabindex="0">
           <td class="mono">${esc(r.collected)}</td><td><b>${esc(r.patientCode)}</b></td><td>${esc(KIND_NAMES[r.kind])}</td>
           <td>${esc(i.finding)}${i.flags.some(f => f.level === "alert") ? ' <span class="pill alert-p">alert</span>' : ""}</td>
           <td><span class="pill ${s.cls}">${s.label}</span></td></tr>`; }).join("")}</tbody></table></div>`
         : `<div class="quiet">Nothing here. ${state.worklistFilter === "open" ? "Every result has been signed." : ""}</div>`}
-      <p class="hint">Results that break a rule (late PCR detection, low genome coverage, partial gene match, genome and culture disagreeing...) wait in "Needs discussion". Signing one needs a note explaining the decision.</p>
+      <p class="hint">Results that break a rule (late PCR detection, low genome coverage, partial gene match, genome and culture disagreeing...) wait in "Needs review". Signing one needs a note explaining the decision.</p>
     </div>`;
 }
 function kpi(label, num, sub) { return `<div class="kpi"><span class="eyebrow">${label}</span><span class="num">${num}</span><span class="muted" style="font-size:0.8rem">${sub}</span></div>`; }
@@ -345,7 +345,7 @@ function renderPatientRecord() {
       ${rs.length ? `<div class="table-box"><table><thead><tr><th>Collected</th><th>Test</th><th>Finding</th><th>Syndrome</th><th>Type</th><th>Status</th></tr></thead><tbody>${
         rs.map(r => { const i = it(r), s = statusOf(r, i); return `<tr class="clickable" data-jump="${esc(r.id)}"><td class="mono">${esc(r.collected)}</td><td>${esc(KIND_NAMES[r.kind])}</td>
           <td>${esc(i.finding)}</td><td>${synTag(i.syndrome) || "—"}</td><td>${i.level === "negative" ? "—" : catName(i.category)}</td><td><span class="pill ${s.cls}">${s.label}</span></td></tr>`; }).join("")}</tbody></table></div>` : `<p class="muted">No results yet. Use Import results.</p>`}
-      ${discuss.length ? `<div class="flags"><li class="discuss"><b>${plural(discuss.length, "result needs", "results need")} discussion</b> before signing: ${discuss.map(r => esc(KIND_NAMES[r.kind]) + " (" + esc(r.collected) + ")").join(", ")}.</li></div>` : ""}
+      ${discuss.length ? `<div class="flags"><li class="discuss"><b>${plural(discuss.length, "result needs", "results need")} review</b> before signing: ${discuss.map(r => esc(KIND_NAMES[r.kind]) + " (" + esc(r.collected) + ")").join(", ")}.</li></div>` : ""}
     </div>
     ${rs.map(resultCard).join("")}`;
 }
@@ -376,7 +376,7 @@ function resultCard(r) {
   const pv = r.provenance || {};
   const sign = r.status === "signed"
     ? `<p class="hint">Signed by ${esc(r.signedBy)} · ${fmtTime(r.signedAt)}${r.note ? ` · Note: ${esc(r.note)}` : ""}</p>`
-    : `<label class="field">Clinician note ${i.needsDiscussion ? "(required: explain your decision. The patient sees this note.)" : "(optional; the patient sees this note)"}
+    : `<label class="field">Clinician note ${i.needsDiscussion ? "(required: this result needs review. Explain your decision; the patient sees this note.)" : "(optional; the patient sees this note)"}
          <textarea id="note-${esc(r.id)}" maxlength="600" style="min-height:4em;font-family:var(--f-body)">${esc(r.note)}</textarea></label>
        <div class="row"><button class="btn small" data-sign="${esc(r.id)}">Sign result</button><span class="hint" id="signMsg-${esc(r.id)}"></span></div>`;
   return `<article class="result ${i.level}" id="res-${esc(r.id)}" tabindex="-1">
@@ -390,12 +390,12 @@ function resultCard(r) {
 
 async function signResult(id) {
   const r = state.results.find(x => x.id === id), i = it(r), note = ($("note-" + id).value || "").trim(), msg = $("signMsg-" + id);
-  if (i.needsDiscussion && !note) { msg.className = "err"; msg.textContent = "Add a note explaining your decision before signing a result that needs discussion."; return; }
+  if (i.needsDiscussion && !note) { msg.className = "err"; msg.textContent = "Add a note explaining your decision before signing a result that needs review."; return; }
   const now = new Date().toISOString(), by = currentUserName();
   const deidId = r.deidId || "d-" + uid();
   try {
     await store.updateResult(id, { status: "signed", signedBy: by, signedAt: now, note, deidId,
-      history: [...(r.history || []), { at: now, by, action: i.needsDiscussion ? "signed after discussion" : "signed" }] });
+      history: [...(r.history || []), { at: now, by, action: i.needsDiscussion ? "signed after review" : "signed" }] });
     const p = state.patients.find(x => x.id === r.patientId);
     await store.saveDeid(deidId, deidentify({ ...r, status: "signed" }, p, i));
   } catch (e) { msg.className = "err"; msg.textContent = dbError(e); }
@@ -495,7 +495,7 @@ async function previewImport() {
   out.innerHTML = `<div class="panel"><div class="panel-head"><h3>Check before saving</h3><span class="eyebrow">${plural(items.length, "result")} ready</span></div>
     ${errors.length ? `<ul class="flags">${errors.map(e => `<li class="${e.startsWith("Note") ? "" : "discuss"}">${esc(e)}</li>`).join("")}</ul>` : ""}
     ${items.map(r => { const i = interpret(r, ctx); return `<div class="result ${i.level}"><div class="result-top"><div><span class="eyebrow">${esc(r.patientCode)} · ${esc(KIND_NAMES[r.kind])} · ${esc(r.collected)}</span><h3>${esc(i.finding)}</h3></div>
-      <span class="pill ${i.needsDiscussion ? "watch-p" : "plain-p"}">${i.needsDiscussion ? "Will need discussion" : "Ready to sign"}</span></div>
+      <span class="pill ${i.needsDiscussion ? "watch-p" : "plain-p"}">${i.needsDiscussion ? "Will need review" : "Ready to sign"}</span></div>
       ${i.flags.length ? `<ul class="flags">${i.flags.map(f => `<li class="${f.level}">${f.text}</li>`).join("")}</ul>` : ""}</div>`; }).join("")}
     <div class="row"><button class="btn" id="imSave" ${items.length && !errors.some(e => !e.startsWith("Note")) ? "" : "disabled"}>Save ${plural(items.length, "result")}</button>
       ${errors.some(e => !e.startsWith("Note")) ? `<span class="err">Fix the problems above first; nothing has been saved.</span>` : ""}<span class="hint" id="imMsg"></span></div></div>`;
@@ -699,7 +699,7 @@ function clinicianReport(p) {
       <tr><th>Age</th><td>${ageOf(p) ?? "—"}</td><th>Residence</th><td>${esc(placeName(p.residence))} (${esc(CAMPUSES[placeCampus(p.residence)] || "—")})</td></tr></tbody></table></div>
     <div class="sec"><h2>Summary</h2><table><thead><tr><th>Collected</th><th>Test</th><th>Finding</th><th>Syndrome</th><th>Type</th><th>Status</th></tr></thead><tbody>${
       rs.map(r => { const i = it(r); return `<tr><td>${esc(r.collected)}</td><td>${esc(KIND_NAMES[r.kind])}</td><td><b>${esc(i.finding)}</b></td><td>${i.syndrome ? esc(SYN[i.syndrome][0]) : "—"}</td><td>${i.level === "negative" ? "—" : catName(i.category)}</td><td>${statusOf(r, i).label}</td></tr>`; }).join("")}</tbody></table></div>
-    ${discuss.length ? `<div class="sec"><h2>Needs discussion</h2>${discuss.map(r => it(r).flags.filter(f => f.level === "discuss").map(f => `<div class="flag">${esc(KIND_NAMES[r.kind])} (${esc(r.collected)}): ${f.text}${r.status === "signed" ? `<br><b>Resolved</b> by ${esc(r.signedBy)}: ${esc(r.note)}` : " <b>Open.</b>"}</div>`).join("")).join("")}</div>` : ""}
+    ${discuss.length ? `<div class="sec"><h2>Needs review</h2>${discuss.map(r => it(r).flags.filter(f => f.level === "discuss").map(f => `<div class="flag">${esc(KIND_NAMES[r.kind])} (${esc(r.collected)}): ${f.text}${r.status === "signed" ? `<br><b>Resolved</b> by ${esc(r.signedBy)}: ${esc(r.note)}` : " <b>Open.</b>"}</div>`).join("")).join("")}</div>` : ""}
     <h2>Details</h2>
     ${rs.map(r => { const i = it(r), d = r.data || {}, pv = r.provenance || {};
       let det = "";
@@ -781,8 +781,8 @@ function onSession(s) {
   if (key === lastKey) return render();
   lastKey = key;
   stopListening();
-  // Students see the patient view of the lab: their own results.
-  const role = s ? (s.role === "student" ? "patient" : s.role) : null;
+  // Campus community members see the patient view of the lab: their own results.
+  const role = s ? (s.role === "community" ? "patient" : s.role) : null;
   if (!s) { Object.assign(state, { mode: null, role: null, patients: [], results: [], deid: [] }); return render(); }
   if (s.mode === "demo") {
     const d = LabCore.loadDemo(LAB_DEMO.build);
