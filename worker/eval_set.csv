@@ -29,3 +29,6 @@ text,is_illness,symptoms,place
 "short of breath walking up stairs today, kinda scary",1,sob,unknown
 "great game tonight, the defense was sick",0,,unknown
 "my friend at hassayampa has a fever of 102",1,fever,tempe-hassayampa
+"sore throat, fever of 101, swollen glands in my neck, white spots on my tonsils. no cough tho",1,sorethroat;fever;glands;tonsils,unknown
+"roommate at tooker has been puking since last night, now the runs and stomach cramps",1,vomiting;diarrhea;cramps,tempe-tooker
+"no fever, just a sore throat and a cough that won't quit",1,sorethroat;cough,unknown
