@@ -27,7 +27,7 @@
                  3 Cluster detection (who is sick, where, how many)
                  4 Data storage (Firebase Firestore database)
                  5 Survey form
-                 6 Dashboard rendering
+                 6 Dashboard rendering (6b: research export)
                  7 Startup
 -->
 <link rel="preconnect" href="https://fonts.googleapis.com">
@@ -283,6 +283,19 @@ a.news-title:hover { text-decoration-color: currentColor; }
   .pts { font-family: var(--f-mono); font-size: 0.8rem; white-space: nowrap; }
   footer { font-size: 0.8rem; color: var(--ink-2); padding-block: 8px 0; max-width: 68ch; }
 
+  .appbar-links { display: flex; align-items: center; gap: 12px; flex-wrap: wrap; }
+  .lab-link { font-weight: 600; color: var(--accent); }
+  /* Research export tab */
+  .btn.small { padding: 8px 12px; font-size: 0.88rem; min-height: 38px; border-radius: 8px; }
+  .rx-steps { display: grid; gap: 16px; }
+  .rx-row { display: flex; flex-wrap: wrap; gap: 8px; align-items: center; }
+  .rx-count { font: 500 0.8rem var(--f-mono); color: var(--ink-2); }
+  .rx-sources { display: grid; grid-template-columns: repeat(auto-fit, minmax(230px, 1fr)); gap: 10px 16px; }
+  .rx-dl { display: grid; grid-template-columns: repeat(auto-fit, minmax(240px, 1fr)); gap: 8px; }
+  .rx-dl .btn { text-align: left; }
+  .rx-note { background: var(--surface-2); border-radius: 8px; padding: 10px 12px; font-size: 0.86rem; }
+  .rx-preview td, .rx-preview th { white-space: nowrap; max-width: 28ch; overflow: hidden; text-overflow: ellipsis; }
+
   @media (prefers-reduced-motion: no-preference) {
     .alert, .result { animation: rise .3s ease-out; }
     @keyframes rise { from { transform: translateY(4px); } to { transform: none; } }
@@ -303,7 +316,10 @@ a.news-title:hover { text-decoration-color: currentColor; }
         <p class="sub"><span id="mmwr" class="mono">MMWR week</span> · symptom surveillance across the ASU campus network</p>
       </div>
     </div>
-    <span class="tag">Class project · not an official ASU service</span>
+    <div class="appbar-links">
+      <a class="lab-link" href="lab.html">Lab portal</a>
+      <span class="tag">Class project · not an official ASU service</span>
+    </div>
   </header>
 
   <main>
@@ -397,6 +413,7 @@ a.news-title:hover { text-decoration-color: currentColor; }
         <button role="tab" data-sub="wastewater" aria-selected="false">Wastewater <span class="badge" id="badge-wastewater" hidden></span></button>
         <button role="tab" data-sub="genomics" aria-selected="false">Genomics <span class="badge" id="badge-genomics" hidden></span></button>
         <button role="tab" data-sub="social" aria-selected="false">Social &amp; news <span class="badge" id="badge-social" hidden></span></button>
+        <button role="tab" data-sub="research" aria-selected="false">Research</button>
         <button role="tab" data-sub="demo" aria-selected="false">Live demo</button>
       </nav>
 
@@ -542,6 +559,62 @@ a.news-title:hover { text-decoration-color: currentColor; }
         </div>
       </div>
 
+      <!-- ============ RESEARCH EXPORT ============ -->
+      <div class="subpanel" data-subpanel="research" hidden>
+        <div class="panel">
+          <div class="panel-head">
+            <h3>Research data export</h3>
+            <span class="eyebrow">Pick illnesses and places, then download</span>
+          </div>
+          <p class="muted">Pull every record that matches your choices, from all sources, for any date range (not only the last few weeks shown elsewhere). Download as CSV files, or as one ZIP with a data dictionary and a record of the filters you used.</p>
+          <p class="hint">Lab results (PCR, cultures, genomes) are private and live in the <a href="lab.html">Lab portal</a>; researchers sign in there for de-identified lab data.</p>
+
+          <div class="rx-steps">
+            <fieldset>
+              <legend>1. Syndromes</legend>
+              <div class="rx-row">
+                <button type="button" class="btn ghost small" data-rx-all="syn" data-rx-set="1">Select all</button>
+                <button type="button" class="btn ghost small" data-rx-all="syn" data-rx-set="0">Clear</button>
+                <span class="rx-count" id="rxSynCount"></span>
+              </div>
+              <div class="chips" id="rxSyndromes"></div>
+              <p class="hint">Syndromes come from the app's symptom rules, not lab results. Wastewater targets are included when they are linked to a selected syndrome (for example norovirus and rotavirus for Gastrointestinal).</p>
+            </fieldset>
+
+            <fieldset>
+              <legend>2. Places</legend>
+              <div class="rx-row">
+                <button type="button" class="btn ghost small" data-rx-all="place" data-rx-set="1">Select all</button>
+                <button type="button" class="btn ghost small" data-rx-all="place" data-rx-set="0">Clear</button>
+                <span class="rx-count" id="rxPlaceCount"></span>
+              </div>
+              <div id="rxPlaces" style="display:grid;gap:12px"></div>
+              <p class="hint">Reports match on the residence people chose. Social posts and news match on the place the text names; a post that names only a campus counts when you pick an on-campus residence there (its <span class="mono">place_level</span> column says so). A wastewater site is included when its sewer line covers a selected residence or campus.</p>
+            </fieldset>
+
+            <fieldset>
+              <legend>3. Dates and sources</legend>
+              <div class="grid2">
+                <label class="field">From <input type="date" id="rxFrom"></label>
+                <label class="field">To <input type="date" id="rxTo"></label>
+              </div>
+              <div class="rx-row" id="rxPresets"></div>
+              <p class="hint">Dates mean onset date for symptom reports, sample date for wastewater and lineages, and post date for social posts and news.</p>
+              <div class="rx-sources" id="rxSources"></div>
+              <label class="check"><input type="checkbox" id="rxDemo"> Include example (demo) data. Leave this off for real research.</label>
+            </fieldset>
+          </div>
+
+          <div class="rx-row">
+            <button type="button" class="btn" id="rxPull">Pull data</button>
+            <span class="muted" id="rxStatus" role="status" aria-live="polite"></span>
+          </div>
+          <p class="hint">Each pull reads every matching record from the database, so keep the date range as narrow as your question allows.</p>
+        </div>
+
+        <div id="rxResults" hidden></div>
+      </div>
+
       <!-- ============ LIVE DEMO ============ -->
       <div class="subpanel" data-subpanel="demo" hidden>
         <div class="demo-grid">
@@ -577,6 +650,8 @@ a.news-title:hover { text-decoration-color: currentColor; }
           <li><b>Cross-check with wastewater.</b> Sewage samples measure virus and bacteria genes shed by everyone on a sewer line, including people who never report. For each site and target, the geometric mean (an average on a log scale) of the last 7 days is compared with the 28 days before. 2× baseline is <b>elevated</b> and 4× is <b>high</b>; a first detection after only non-detects is elevated. Values are divided by PMMoV, a virus every person sheds, when every sample in the series has it. The map shows each sampling site colored by its strongest signal. A wastewater signal that matches a symptom cluster (same syndrome, same place) is marked <b>+ wastewater</b>. One with no matching cluster is a possible early warning.</li>
           <li><b>Measure lead time.</b> The wastewater rise date is the first sample in the last 21 days at 2× baseline or more. Lead time is the number of days from that date to the first symptom onset in the matching cluster; positive means wastewater saw it first.</li>
           <li><b>Track SARS-CoV-2 lineages.</b> Sequencing results (lineage shares from a tool like Freyja) are shown as a stacked bar per sample. Diversity is the Shannon index, H = −Σ p ln p, shown as e<sup>H</sup>, the effective number of lineages.</li>
+          <li><b>Export for research.</b> The Research tab filters every source by syndrome, place and date and downloads the matching rows as CSV, with a data dictionary and a record of the filters. Wastewater targets follow their linked syndromes; posts and stories follow the place their text names.</li>
+          <li><b>Lab portal.</b> A separate, sign-in page (<a href="lab.html">lab.html</a>) for clinic lab results: PCR panels, cultures with antibiotic susceptibility, and viral and bacterial genomes. Patients see their own signed results, clinicians review and sign, researchers get de-identified totals. Modeled on the KDI system of Servant et al. (Front. Genet. 2014). Synthetic data only.</li>
         </ol>
       </div>
       <div class="panel">
@@ -615,6 +690,7 @@ a.news-title:hover { text-decoration-color: currentColor; }
 <script src="https://www.gstatic.com/firebasejs/10.12.2/firebase-firestore-compat.js"></script>
 <script src="https://cdnjs.cloudflare.com/ajax/libs/qrcodejs/1.0.0/qrcode.min.js"></script>
 <script src="https://cdnjs.cloudflare.com/ajax/libs/leaflet/1.9.4/leaflet.min.js"></script>
+<script src="https://cdnjs.cloudflare.com/ajax/libs/jszip/3.10.1/jszip.min.js"></script>
 <!-- Your project's settings (edit this file, see README) -->
 <script src="firebase-config.js?v=5"></script>
 <!-- Wastewater targets and sampling sites (edit this file) -->
@@ -1291,11 +1367,16 @@ function classifyMediaSymptoms(m) {
   return classify(pseudo);
 }
 
-function visibleMedia() {
-  return (state.media || [])
+// Clean and classify raw media records. keep(m) decides which records stay (example data rules).
+function prepareMedia(list, keep) {
+  return (list || [])
     .filter(m => m && typeof m.postedAt === "string" && !isNaN(new Date(m.postedAt)) && Array.isArray(m.symptoms || []))
-    .filter(m => state.showDemo || !m.demo || m.source === "demo-feed")    // the live demo feed is always shown
+    .filter(keep)
     .map(m => ({ ...m, c: m.isIllness ? classifyMedia(m) : null }));
+}
+function visibleMedia() {
+  // the live demo feed is always shown
+  return prepareMedia(state.media, m => state.showDemo || !m.demo || m.source === "demo-feed");
 }
 
 function mediaSummary(media, clusters, wwSignals) {
@@ -1443,6 +1524,29 @@ function subscribeLineages() {
   );
 }
 
+// Research export: read EVERY record in a date range (the live listeners above only keep
+// the last 70 or 14 days). Dates are widened by a day for the media query, because its
+// postedAt values are ISO timestamps; the exact local-date filter is applied afterwards.
+async function fetchResearchData(from, to, want) {
+  if (!state.db) {      // local mode: only what this visit holds in memory
+    return { reports: state.reports.slice(), wastewater: state.wastewater.slice(),
+             lineages: (state.lineagesAll || []).slice(), media: state.media.slice(), local: true };
+  }
+  const read = q => q.get().then(snap => snap.docs.map(d => ({ id: d.id, ...d.data() })));
+  const byDate = (name, field) => read(state.db.collection(name).where(field, ">=", from).where(field, "<=", to));
+  const startIso = new Date(addDays(from, -1) + "T00:00:00").toISOString();
+  const endIso = new Date(addDays(to, 2) + "T00:00:00").toISOString();
+  const none = Promise.resolve([]);
+  const [reports, wastewater, lineages, media] = await Promise.all([
+    want.has("reports") ? byDate("reports", "onset") : none,
+    want.has("wastewater") ? byDate("wastewater", "date") : none,
+    want.has("genomics") ? byDate("lineages", "date") : none,
+    (want.has("social") || want.has("news"))
+      ? read(state.db.collection("media_extracted").where("postedAt", ">=", startIso).where("postedAt", "<", endIso)) : none,
+  ]);
+  return { reports, wastewater, lineages, media, local: false };
+}
+
 async function saveReport(report) {
   if (state.db) {
     await state.db.collection("reports").add(report);  // snapshot listener re-renders
@@ -1584,10 +1688,11 @@ function buildFormDefaults() { $("onset").value = addDays(todayStr(), -1); updat
    6. DASHBOARD
    ===================================================================== */
 
-function visibleReports() {
-  return state.reports
+// Clean and classify raw report documents. showDemo=false drops example data.
+function prepareReports(list, showDemo) {
+  return list
     .filter(r => r && DATE_RE.test(r.onset || "") && Array.isArray(r.symptoms))   // skip malformed rows
-    .filter(r => state.showDemo || !r.demo)
+    .filter(r => showDemo || !r.demo)
     .map(r => {
       const clean = { ...r,
         symptoms: r.symptoms.filter(s => knownSymptoms.has(s)),           // drop unknown symptoms
@@ -1595,6 +1700,7 @@ function visibleReports() {
       return { ...clean, c: classify(clean) };
     });
 }
+function visibleReports() { return prepareReports(state.reports, state.showDemo); }
 
 function visibleWastewater() {
   return state.wastewater.filter(s => s && DATE_RE.test(s.date || "") && (state.showDemo || !s.demo));
@@ -2263,10 +2369,531 @@ function setLive(on, text) { $("liveBadge").className = "live" + (on ? "" : " of
 
 
 /* =====================================================================
+   6b. RESEARCH EXPORT
+   A researcher picks syndromes, places, dates and sources; we pull every
+   matching record and offer CSV downloads. Each dataset is a list of flat
+   rows. RX_DATASETS lists each file's columns in order, with a plain-language
+   description that also becomes the data dictionary.
+   ===================================================================== */
+
+const ALL_PLACE_IDS = RESIDENCES.flatMap(g => g.items.map(i => i[0]));
+const RX_SOURCES = [
+  { id: "reports",    label: "Symptom reports" },
+  { id: "wastewater", label: "Wastewater samples" },
+  { id: "genomics",   label: "SARS-CoV-2 lineages" },
+  { id: "social",     label: "Social posts" },
+  { id: "news",       label: "News stories" },
+];
+const RX_PRESETS = [[30, "Last 30 days"], [90, "Last 90 days"], [180, "Last 6 months"], [365, "Last year"]];
+
+// The campus a place id belongs to, or null. Handles residences, "off-…" housing and "campus-…" ids.
+function placeCampus(id) {
+  if (!id) return null;
+  if (residenceCampus[id]) return residenceCampus[id];
+  if (id.startsWith("campus-")) return id.slice(7);
+  if (id.startsWith("off-")) return { tempe: "tempe", dtphx: "downtown", poly: "poly", west: "west" }[id.slice(4)] || null;
+  return null;
+}
+function placeLevel(id) {
+  return residenceName[id] ? "residence" : (id && id.startsWith("campus-")) ? "campus" : "not named";
+}
+const synName = id => (syndromeById[id] || {}).name || id || "";
+const mmwrLabel = d => { const w = mmwrWeek(d); return w.year + "-W" + String(w.week).padStart(2, "0"); };
+const joinList = a => (Array.isArray(a) ? a : []).join(";");
+
+// Columns shared by the social and news files.
+const RX_MEDIA_COLS = [
+  ["posted_at", "When the post or story was published (ISO timestamp)"],
+  ["posted_date", "Local calendar date of posted_at"],
+  ["place_id", "Place the text names: a residence id, a campus id (campus-…) or unknown"],
+  ["place_name", "Readable name of place_id"],
+  ["place_level", "residence, campus, or not named"],
+  ["place_campus", "Campus that place_id belongs to, if any"],
+  ["syndrome", "Syndrome id from the same rules used for survey reports"],
+  ["syndrome_name", "Readable syndrome name"],
+  ["pathogen_category", "Pathogen type from the rules (viral, bacterial, fungal, parasitic, noninfectious) or undetermined"],
+  ["pathogen_named", "Disease named in the text, if any (none if not named)"],
+  ["symptoms", "Symptoms found in the text, separated by semicolons"],
+  ["urgent", "true if a red-flag symptom pattern was found"],
+  ["extraction_confidence", "The NLP model's own confidence, 0 to 1"],
+  ["extraction_method", "How the text was read (for example openai or keywords)"],
+  ["is_demo", "true for example data"],
+];
+
+const RX_DATASETS = {
+  reports: { file: "symptom_reports", label: "Symptom reports", cols: [
+    ["report_id", "Database id of the report (anonymous)"],
+    ["onset_date", "Date symptoms began (YYYY-MM-DD)"],
+    ["onset_mmwr_week", "CDC MMWR epidemiological week of onset (year-Wweek)"],
+    ["submitted_at", "When the report was submitted (ISO timestamp)"],
+    ["residence_id", "Residence the person chose"],
+    ["residence_name", "Readable name of residence_id"],
+    ["residence_campus", "Campus the residence is on or near"],
+    ["campuses_attended", "Campuses the person attends, separated by semicolons"],
+    ["syndrome", "Syndrome id assigned by the app's rules (ili, resp, gi, skin, neuro, other)"],
+    ["syndrome_name", "Readable syndrome name"],
+    ["pathogen_category", "Most likely pathogen type by point scoring, or undetermined. Not a diagnosis"],
+    ["classifier_confidence", "high, moderate or low: share of points held by pathogen_category"],
+    ["urgent", "true if severe or a red-flag symptom (shortness of breath, blood in stool, stiff neck with fever)"],
+    ["symptoms", "Symptoms selected, separated by semicolons"],
+    ["max_temp_f", "Highest temperature in °F, if given"],
+    ["severity", "mild, moderate or severe (self-rated)"],
+    ["close_contacts_sick", "yes, no or unsure"],
+    ["shared_meal", "true if illness followed a shared meal"],
+    ["recent_travel", "true if international travel was reported"],
+    ["saw_provider", "true if the person saw a health care provider"],
+    ["days_ill_at_report", "Days from onset to submission"],
+    ["is_demo", "true for example data"],
+  ] },
+  wastewater: { file: "wastewater_samples", label: "Wastewater samples", cols: [
+    ["sample_id", "Database id of the sample"],
+    ["sample_date", "Sample date (YYYY-MM-DD)"],
+    ["sample_mmwr_week", "CDC MMWR week of the sample date"],
+    ["site_id", "Sampling site id (see wastewater-config.js)"],
+    ["site_name", "Readable site name"],
+    ["site_campus", "Campus the site serves"],
+    ["site_scope", "campus-wide, or the building(s) on that sewer line"],
+    ["site_lat", "Site latitude"],
+    ["site_lng", "Site longitude"],
+    ["target_id", "Target id"],
+    ["target_name", "Virus, bacterium or parasite measured"],
+    ["target_category", "viral, bacterial or parasitic"],
+    ["linked_syndromes", "Syndromes this target is linked to, separated by semicolons"],
+    ["copies_per_l", "Gene copies per liter of wastewater. 0 means not detected (the detection limit is not recorded)"],
+    ["pmmov_copies_per_l", "PMMoV copies per liter, if the lab ran it"],
+    ["pmmov_normalized", "copies_per_l divided by pmmov_copies_per_l, which corrects for dilution; blank if no PMMoV"],
+    ["is_demo", "true for example data"],
+  ] },
+  genomics: { file: "sars2_lineages", label: "SARS-CoV-2 lineages", cols: [
+    ["sample_id", "Database id of the sequencing result"],
+    ["sample_date", "Sample date (YYYY-MM-DD)"],
+    ["site_id", "Sampling site id"],
+    ["site_name", "Readable site name"],
+    ["site_campus", "Campus the site serves"],
+    ["lineage", "Pango lineage name as uploaded"],
+    ["share_reported", "Share of the sample as uploaded (a fraction)"],
+    ["share_normalized", "share_reported rescaled so the sample's lineages add to 1"],
+    ["effective_lineages", "Genetic diversity of the whole sample, e^H where H is the Shannon index (repeated on each row)"],
+    ["is_demo", "true for example data"],
+  ] },
+  social: { file: "social_posts", label: "Social posts", cols: [
+    ["post_id", "Database id of the extracted record. The post text itself is never stored"],
+    ["source", "Where the post came from (demo-feed, reddit, x, school, …)"],
+    ["source_name", "Readable source name"],
+    ["who", "Who is sick: self, close_contact, other or none"],
+    ["onset_days_ago", "Days before posting that illness began, if stated"],
+    ...RX_MEDIA_COLS,
+  ] },
+  news: { file: "news_stories", label: "News stories", cols: [
+    ["story_id", "Database id of the extracted record"],
+    ["outlet", "News outlet"],
+    ["headline", "Public headline (kept only for infectious-disease stories)"],
+    ["link", "Link to the story"],
+    ["region", "asu_campus, arizona, elsewhere_us, outside_us or unknown"],
+    ["case_count", "Number of cases stated in the story, if any"],
+    ["report_type", "Kind of story (for example cases_or_outbreak)"],
+    ["health_topic", "Topic of the story"],
+    ...RX_MEDIA_COLS,
+  ] },
+  summary: { file: "daily_summary", label: "Daily summary", cols: [
+    ["date", "Onset date (reports) or post date (social, news)"],
+    ["syndrome", "Syndrome id"],
+    ["syndrome_name", "Readable syndrome name"],
+    ["symptom_reports", "Symptom reports with onset on this date"],
+    ["social_posts", "Illness posts from social and other non-news sources on this date"],
+    ["news_stories", "Illness news stories on this date"],
+  ] },
+};
+const RX_ORDER = ["summary", "reports", "wastewater", "genomics", "social", "news"];
+
+const rx = { result: null, previewKey: "reports" };
+
+/* ----- the form ----- */
+
+function buildResearchForm() {
+  $("rxSyndromes").innerHTML = SYNDROMES.map(s =>
+    `<label class="chip-toggle"><input type="checkbox" data-rx-syn="${s.id}" checked><span>${esc(s.name)}</span></label>`).join("");
+  $("rxPlaces").innerHTML = RESIDENCES.map((g, gi) =>
+    `<div class="sym-group"><label class="check"><input type="checkbox" data-rx-group="${gi}" checked><b>${esc(g.group)}</b></label>` +
+    `<div class="chips">` + g.items.map(([id, name]) =>
+      `<label class="chip-toggle"><input type="checkbox" data-rx-place="${id}" data-group="${gi}" checked><span>${esc(name)}</span></label>`).join("") +
+    `</div></div>`).join("");
+  $("rxSources").innerHTML = RX_SOURCES.map(s =>
+    `<label class="check"><input type="checkbox" data-rx-source="${s.id}" checked> ${esc(s.label)}</label>`).join("");
+  $("rxPresets").innerHTML = RX_PRESETS.map(([d, label]) =>
+    `<button type="button" class="btn ghost small" data-rx-days="${d}">${label}</button>`).join("");
+  $("rxFrom").max = $("rxTo").max = todayStr();
+  setResearchDays(90);
+  syncResearchCounts();
+
+  const form = $("screen-dashboard");
+  form.addEventListener("change", e => {
+    const t = e.target;
+    if (t.dataset.rxGroup !== undefined) {
+      document.querySelectorAll(`[data-rx-place][data-group="${t.dataset.rxGroup}"]`).forEach(c => { c.checked = t.checked; });
+    }
+    if (t.dataset.rxSyn !== undefined || t.dataset.rxPlace !== undefined || t.dataset.rxGroup !== undefined) syncResearchCounts();
+    if (t.id === "rxPreviewSel") { rx.previewKey = t.value; renderResearchPreview(); }
+  });
+  form.addEventListener("click", e => {
+    const b = e.target.closest("button");
+    if (!b) return;
+    if (b.dataset.rxAll) {
+      const sel = b.dataset.rxAll === "syn" ? "[data-rx-syn]" : "[data-rx-place], [data-rx-group]";
+      document.querySelectorAll(sel).forEach(c => { c.checked = b.dataset.rxSet === "1"; });
+      syncResearchCounts();
+    } else if (b.dataset.rxDays) setResearchDays(Number(b.dataset.rxDays));
+    else if (b.id === "rxPull") pullResearch();
+    else if (b.dataset.rxDl) downloadResearch(b.dataset.rxDl);
+  });
+}
+
+function setResearchDays(n) {
+  $("rxTo").value = todayStr();
+  $("rxFrom").value = addDays(todayStr(), -(n - 1));
+}
+
+function syncResearchCounts() {
+  const syn = document.querySelectorAll("[data-rx-syn]:checked").length;
+  $("rxSynCount").textContent = `${syn} of ${SYNDROMES.length} selected`;
+  const places = document.querySelectorAll("[data-rx-place]:checked").length;
+  $("rxPlaceCount").textContent = `${places} of ${ALL_PLACE_IDS.length} selected`;
+  RESIDENCES.forEach((g, gi) => {          // group box: checked, empty or partly filled
+    const boxes = [...document.querySelectorAll(`[data-rx-place][data-group="${gi}"]`)];
+    const on = boxes.filter(b => b.checked).length;
+    const gb = document.querySelector(`[data-rx-group="${gi}"]`);
+    gb.checked = on === boxes.length; gb.indeterminate = on > 0 && on < boxes.length;
+  });
+}
+
+function readResearchSelection() {
+  return {
+    syn: new Set([...document.querySelectorAll("[data-rx-syn]:checked")].map(c => c.dataset.rxSyn)),
+    ids: new Set([...document.querySelectorAll("[data-rx-place]:checked")].map(c => c.dataset.rxPlace)),
+    sources: new Set([...document.querySelectorAll("[data-rx-source]:checked")].map(c => c.dataset.rxSource)),
+    from: $("rxFrom").value, to: $("rxTo").value, includeDemo: $("rxDemo").checked,
+  };
+}
+
+function researchProblem(sel) {
+  if (!sel.syn.size) return "Pick at least one syndrome.";
+  if (!sel.ids.size) return "Pick at least one place.";
+  if (!sel.sources.size) return "Pick at least one source.";
+  if (!DATE_RE.test(sel.from) || !DATE_RE.test(sel.to)) return "Choose a start and end date.";
+  if (sel.from > sel.to) return "The start date is after the end date.";
+  return null;
+}
+
+async function pullResearch() {
+  const sel = readResearchSelection();
+  const problem = researchProblem(sel);
+  const status = $("rxStatus");
+  status.className = problem ? "err" : "muted";
+  if (problem) { status.textContent = problem; return; }
+  $("rxPull").disabled = true;
+  status.textContent = "Pulling data…";
+  try {
+    const raw = await fetchResearchData(sel.from, sel.to, sel.sources);
+    rx.result = buildResearchData(raw, sel);
+    status.textContent = raw.local ? "Local mode: only data from this visit is available." : "Done. " + new Date().toLocaleTimeString();
+    renderResearch();
+  } catch (err) {
+    status.className = "err";
+    status.textContent = err && err.code === "permission-denied"
+      ? "The database refused the request. Publish the latest firestore.rules (see README)."
+      : "Couldn't pull the data (" + ((err && (err.code || err.message)) || "unknown error") + "). Try again.";
+  } finally { $("rxPull").disabled = false; }
+}
+
+/* ----- filtering and flattening ----- */
+
+// Keep the newest upload when the same sample was uploaded twice (same rule the dashboard uses).
+function newestPerKey(list, keyFn) {
+  const kept = new Map();
+  list.forEach(s => {
+    const k = keyFn(s), old = kept.get(k);
+    if (!old || String(s.submittedAt || "") > String(old.submittedAt || "")) kept.set(k, s);
+  });
+  return [...kept.values()];
+}
+
+function buildResearchData(raw, sel) {
+  const inRange = d => typeof d === "string" && d >= sel.from && d <= sel.to;
+  const allSyn = SYNDROMES.every(s => sel.syn.has(s.id));
+  const allPlaces = ALL_PLACE_IDS.every(id => sel.ids.has(id));
+  // Campuses that contain a selected ON-CAMPUS residence. Campus-wide sewers and campus-level
+  // posts count for those campuses. (Off-campus housing does not pull in campus sewers.)
+  const campusSet = new Set([...sel.ids].map(id => residenceCampus[id]).filter(Boolean));
+  const synOk = s => allSyn || sel.syn.has(s);
+  const placeOk = p => allPlaces || sel.ids.has(p) || (typeof p === "string" && p.startsWith("campus-") && campusSet.has(p.slice(7)));
+  const targetOk = id => !!WW_TARGET[id] && (allSyn || WW_TARGET[id].syndromes.some(s => sel.syn.has(s)));
+  const siteOk = id => {
+    const site = WW_SITE[id];
+    if (!site) return false;
+    return allPlaces || (site.residences.length ? site.residences.some(r => sel.ids.has(r)) : campusSet.has(site.campus));
+  };
+  const out = { reports: [], wastewater: [], genomics: [], social: [], news: [], summary: [], skipped: { wastewater: 0, genomics: 0 } };
+
+  // Symptom reports
+  if (sel.sources.has("reports")) {
+    out.reports = prepareReports(raw.reports || [], sel.includeDemo)
+      .filter(r => inRange(r.onset) && synOk(r.c.syndrome) && (allPlaces || sel.ids.has(r.residence)))
+      .sort((a, b) => a.onset < b.onset ? -1 : a.onset > b.onset ? 1 : 0)
+      .map(r => ({
+        report_id: r.id, onset_date: r.onset, onset_mmwr_week: mmwrLabel(r.onset), submitted_at: r.submittedAt,
+        residence_id: r.residence, residence_name: residenceName[r.residence] || "", residence_campus: placeCampus(r.residence) || "",
+        campuses_attended: joinList(r.campuses), syndrome: r.c.syndrome, syndrome_name: synName(r.c.syndrome),
+        pathogen_category: r.c.category, classifier_confidence: r.c.confidence, urgent: !!r.c.urgent,
+        symptoms: joinList(r.symptoms), max_temp_f: Number.isFinite(Number(r.maxTempF)) && r.maxTempF !== null ? Number(r.maxTempF) : "",
+        severity: r.severity, close_contacts_sick: r.contacts, shared_meal: !!r.sharedMeal, recent_travel: !!r.travel,
+        saw_provider: !!r.sawProvider, days_ill_at_report: r.c.days, is_demo: !!r.demo,
+      }));
+  }
+
+  // Wastewater samples
+  if (sel.sources.has("wastewater")) {
+    const valid = (raw.wastewater || []).filter(s => s && DATE_RE.test(s.date || "") && inRange(s.date) &&
+      (sel.includeDemo || !s.demo) && Number.isFinite(Number(s.copiesPerL)) && Number(s.copiesPerL) >= 0);
+    const known = valid.filter(s => WW_SITE[s.site] && WW_TARGET[s.target]);
+    out.skipped.wastewater = valid.length - known.length;
+    out.wastewater = newestPerKey(known.filter(s => targetOk(s.target) && siteOk(s.site)), s => s.site + "|" + s.target + "|" + s.date)
+      .sort((a, b) => a.date < b.date ? -1 : a.date > b.date ? 1 : (a.site + a.target < b.site + b.target ? -1 : 1))
+      .map(s => {
+        const site = WW_SITE[s.site], t = WW_TARGET[s.target];
+        const copies = Number(s.copiesPerL), pm = Number(s.pmmovPerL);
+        return {
+          sample_id: s.id, sample_date: s.date, sample_mmwr_week: mmwrLabel(s.date),
+          site_id: s.site, site_name: site.name, site_campus: site.campus,
+          site_scope: site.residences.length ? "building: " + site.residences.map(r => residenceName[r] || r).join("; ") : "campus-wide",
+          site_lat: site.lat ?? "", site_lng: site.lng ?? "",
+          target_id: s.target, target_name: t.name, target_category: t.category, linked_syndromes: t.syndromes.join(";"),
+          copies_per_l: copies, pmmov_copies_per_l: pm > 0 ? pm : "", pmmov_normalized: pm > 0 ? copies / pm : "", is_demo: !!s.demo,
+        };
+      });
+  }
+
+  // SARS-CoV-2 lineages (only when SARS-CoV-2's linked syndromes are selected)
+  if (sel.sources.has("genomics") && (!WW_TARGET.sars2 || targetOk("sars2"))) {
+    const valid = (raw.lineages || []).filter(d => d && DATE_RE.test(d.date || "") && inRange(d.date) && (sel.includeDemo || !d.demo));
+    const known = valid.filter(d => WW_SITE[d.site]);
+    out.skipped.genomics = valid.length - known.length;
+    newestPerKey(known.filter(d => siteOk(d.site)), d => d.site + "|" + d.date)
+      .sort((a, b) => a.date < b.date ? -1 : a.date > b.date ? 1 : (a.site < b.site ? -1 : 1))
+      .forEach(d => {
+        const items = (Array.isArray(d.lineages) ? d.lineages : [])
+          .filter(x => x && typeof x.lineage === "string" && Number.isFinite(Number(x.share)) && Number(x.share) > 0);
+        const total = items.reduce((n, x) => n + Number(x.share), 0);
+        if (total <= 0) return;
+        const effective = Math.exp(-items.reduce((n, x) => { const p = Number(x.share) / total; return n + p * Math.log(p); }, 0));
+        items.sort((a, b) => Number(b.share) - Number(a.share)).forEach(x => out.genomics.push({
+          sample_id: d.id, sample_date: d.date, site_id: d.site, site_name: WW_SITE[d.site].name, site_campus: WW_SITE[d.site].campus,
+          lineage: x.lineage, share_reported: Number(x.share), share_normalized: Number(x.share) / total,
+          effective_lineages: Math.round(effective * 1000) / 1000, is_demo: !!d.demo,
+        }));
+      });
+  }
+
+  // Social posts and news stories: only illness-related ones have a syndrome
+  if (sel.sources.has("social") || sel.sources.has("news")) {
+    const media = prepareMedia(raw.media || [], m => sel.includeDemo || !m.demo)
+      .filter(m => m.isIllness && m.c && inRange(localDate(m.postedAt)) && synOk(m.c.syndrome) && placeOk(m.place))
+      .sort((a, b) => a.postedAt < b.postedAt ? -1 : 1);
+    const common = m => {
+      const place = m.place || "unknown";
+      return {
+        posted_at: m.postedAt, posted_date: localDate(m.postedAt), place_id: place, place_name: mediaPlaceName(place),
+        place_level: placeLevel(place), place_campus: placeCampus(place) || "", syndrome: m.c.syndrome, syndrome_name: synName(m.c.syndrome),
+        pathogen_category: m.c.category, pathogen_named: m.pathogen && m.pathogen !== "none" ? m.pathogen : "none",
+        symptoms: joinList(m.symptoms), urgent: !!m.c.urgent, extraction_confidence: Number.isFinite(Number(m.confidence)) ? Number(m.confidence) : "",
+        extraction_method: m.method || "", is_demo: !!m.demo,
+      };
+    };
+    if (sel.sources.has("social")) out.social = media.filter(m => m.source !== "news").map(m => ({
+      post_id: m.id, source: m.source, source_name: MEDIA_SOURCES[m.source] || m.source, who: m.who || "",
+      onset_days_ago: Number.isInteger(m.onsetDaysAgo) ? m.onsetDaysAgo : "", ...common(m),
+    }));
+    if (sel.sources.has("news")) out.news = media.filter(m => m.source === "news").map(m => ({
+      story_id: m.id, outlet: m.outlet || "", headline: m.headline || "", link: m.link || "", region: m.region || "",
+      case_count: Number.isFinite(Number(m.caseCount)) && m.caseCount !== null ? Number(m.caseCount) : "",
+      report_type: m.reportType || "", health_topic: m.healthTopic || "", ...common(m),
+    }));
+  }
+
+  // Daily summary: counts by date and syndrome across the symptom, social and news files
+  const cells = new Map();
+  const bump = (date, syndrome, field) => {
+    const k = date + "|" + syndrome;
+    if (!cells.has(k)) cells.set(k, { date, syndrome, syndrome_name: synName(syndrome), symptom_reports: 0, social_posts: 0, news_stories: 0 });
+    cells.get(k)[field]++;
+  };
+  out.reports.forEach(r => bump(r.onset_date, r.syndrome, "symptom_reports"));
+  out.social.forEach(r => bump(r.posted_date, r.syndrome, "social_posts"));
+  out.news.forEach(r => bump(r.posted_date, r.syndrome, "news_stories"));
+  const order = SYNDROMES.map(s => s.id);
+  out.summary = [...cells.values()].sort((a, b) => a.date < b.date ? -1 : a.date > b.date ? 1 : order.indexOf(a.syndrome) - order.indexOf(b.syndrome));
+
+  out.genomicsSkipped = sel.sources.has("genomics") && !!WW_TARGET.sars2 && !targetOk("sars2");
+  out.sel = sel; out.allSyn = allSyn; out.allPlaces = allPlaces; out.pulledAt = new Date().toISOString(); out.local = !!raw.local;
+  out.targets = (window.WW_TARGETS || []).filter(t => targetOk(t.id)).map(t => t.name);
+  return out;
+}
+
+/* ----- results on screen ----- */
+
+const RX_USED = ["summary", "reports", "wastewater", "genomics", "social", "news"];
+const rxHas = (r, key) => key === "summary" ? (r.sel.sources.has("reports") || r.sel.sources.has("social") || r.sel.sources.has("news")) : r.sel.sources.has(key);
+
+function renderResearch() {
+  const r = rx.result, box = $("rxResults");
+  if (!r) { box.hidden = true; return; }
+  box.hidden = false;
+  const keys = RX_USED.filter(k => rxHas(r, k));
+  if (!keys.includes(rx.previewKey)) rx.previewKey = keys.find(k => k !== "summary") || keys[0];
+  const total = ["reports", "wastewater", "genomics", "social", "news"].reduce((n, k) => n + r[k].length, 0);
+
+  // Counts by syndrome across the three syndrome-coded sources
+  const rows = SYNDROMES.map(s => {
+    const f = k => r[k].filter(x => x.syndrome === s.id).length;
+    return { s, rep: f("reports"), soc: f("social"), news: f("news") };
+  }).filter(x => x.rep + x.soc + x.news > 0);
+  const syndromeTable = rows.length
+    ? `<table><thead><tr><th>Syndrome</th><th style="text-align:center">Reports</th><th style="text-align:center">Social posts</th><th style="text-align:center">News</th></tr></thead><tbody>` +
+      rows.map(x => `<tr><td><span class="syn"><i class="sw" style="background:${x.s.color}"></i>${esc(x.s.name)}</span></td><td class="n">${x.rep}</td><td class="n">${x.soc}</td><td class="n">${x.news}</td></tr>`).join("") +
+      `</tbody></table>` : "";
+
+  const notes = [];
+  if (r.local) notes.push("Local mode: this only holds data from the current visit, not the database.");
+  if (r.skipped.wastewater) notes.push(`${r.skipped.wastewater} wastewater sample(s) were left out because their site or target isn't listed in wastewater-config.js.`);
+  if (r.skipped.genomics) notes.push(`${r.skipped.genomics} lineage result(s) were left out because their site isn't listed in wastewater-config.js.`);
+  if (r.genomicsSkipped)
+    notes.push("Lineage data was skipped: SARS-CoV-2 is linked to Influenza-like illness and Other respiratory, and neither is selected.");
+  if (r.sel.sources.has("wastewater")) notes.push("Wastewater targets included: " + (r.targets.length ? r.targets.join(", ") : "none") + ".");
+
+  const dl = keys.map(k => {
+    const n = r[k].length;
+    return `<button type="button" class="btn ghost small" data-rx-dl="${k}"${n ? "" : " disabled"}>${esc(RX_DATASETS[k].label)} · ${n.toLocaleString()} row${n === 1 ? "" : "s"} (CSV)</button>`;
+  }).join("");
+
+  box.innerHTML = `
+    <div class="panel">
+      <div class="panel-head"><h3>Your data</h3><span class="eyebrow">${esc(r.sel.from)} to ${esc(r.sel.to)} · ${r.allSyn ? "all syndromes" : r.sel.syn.size + " of " + SYNDROMES.length + " syndromes"} · ${r.allPlaces ? "all places" : r.sel.ids.size + " of " + ALL_PLACE_IDS.length + " places"}</span></div>
+      <div class="kpis">${["reports", "wastewater", "genomics", "social", "news"].filter(k => r.sel.sources.has(k))
+        .map(k => kpi(esc(RX_DATASETS[k].label), r[k].length.toLocaleString(), `<span class="muted">${k === "genomics" ? "lineage rows" : "rows"}</span>`)).join("")}</div>
+      ${total === 0 ? `<div class="quiet" style="background:var(--watch-bg)"><b>Nothing matched.</b> Try a longer date range, more places or syndromes, or turn on example data.</div>` : ""}
+      <div class="table-box">${syndromeTable}</div>
+      ${notes.map(n => `<p class="rx-note">${esc(n)}</p>`).join("")}
+    </div>
+    <div class="panel">
+      <div class="panel-head"><h3>Download</h3><span class="eyebrow">UTF-8 CSV, one header row</span></div>
+      <div class="rx-dl">${dl}</div>
+      <div class="rx-row">
+        <button type="button" class="btn small" data-rx-dl="zip"${window.JSZip && total ? "" : " disabled"}>Download everything (.zip)</button>
+        <button type="button" class="btn ghost small" data-rx-dl="meta">Filters and definitions (.json)</button>
+        ${window.JSZip ? "" : `<span class="muted">The ZIP library didn't load; download the files one at a time.</span>`}
+      </div>
+      <p class="hint">The ZIP holds every CSV above, <span class="mono">data_dictionary.csv</span> (what each column means) and <span class="mono">query.json</span> (your exact filters, so the pull can be repeated and cited).</p>
+    </div>
+    <div class="panel">
+      <div class="panel-head"><h3>Preview</h3>
+        <label class="field" style="display:inline-grid"><span class="eyebrow">File</span><select id="rxPreviewSel">${keys.map(k => `<option value="${k}"${k === rx.previewKey ? " selected" : ""}>${esc(RX_DATASETS[k].label)}</option>`).join("")}</select></label>
+      </div>
+      <div class="table-box rx-preview" id="rxPreview"></div>
+    </div>
+    <div class="panel">
+      <h3>Using this data responsibly</h3>
+      <p class="muted">Symptom reports are anonymous, self-reported and not lab-confirmed. Syndromes and pathogen types come from simple scoring rules, so treat them as screening labels, not diagnoses. Counts of 1 to 4 in a single residence can point to real people: combine places or weeks, or suppress small counts, before you publish. Social and news rows hold only extracted fields, never the original post text. Never try to identify individuals.</p>
+    </div>`;
+  renderResearchPreview();
+}
+
+function renderResearchPreview() {
+  const r = rx.result, key = rx.previewKey;
+  if (!r || !$("rxPreview")) return;
+  const cols = RX_DATASETS[key].cols.map(c => c[0]), rows = r[key].slice(0, 10);
+  $("rxPreview").innerHTML = rows.length
+    ? `<table><thead><tr>${cols.map(c => `<th>${esc(c)}</th>`).join("")}</tr></thead><tbody>` +
+      rows.map(x => `<tr>${cols.map(c => `<td title="${esc(x[c])}">${esc(x[c])}</td>`).join("")}</tr>`).join("") +
+      `</tbody></table>` + (r[key].length > rows.length ? `<p class="muted" style="margin-top:8px">First ${rows.length} of ${r[key].length.toLocaleString()} rows.</p>` : "")
+    : `<p class="muted">No rows.</p>`;
+}
+
+/* ----- files ----- */
+
+// One CSV cell. Text that starts with = + - @ is prefixed with an apostrophe so Excel and Sheets
+// can't run it as a formula (news headlines are written by strangers).
+function csvCell(v) {
+  if (v === null || v === undefined) return "";
+  if (typeof v === "boolean") return v ? "true" : "false";
+  let s = String(v);
+  if (typeof v === "string" && /^[=+\-@\t\r]/.test(s)) s = "'" + s;
+  return /[",\n\r]/.test(s) ? '"' + s.replace(/"/g, '""') + '"' : s;
+}
+function toCsv(key, rows) {
+  const cols = RX_DATASETS[key].cols.map(c => c[0]);
+  return "\uFEFF" + [cols.join(","), ...rows.map(r => cols.map(c => csvCell(r[c])).join(","))].join("\r\n") + "\r\n";
+}
+function dictionaryCsv(keys) {
+  const lines = ["file,column,description"];
+  keys.forEach(k => RX_DATASETS[k].cols.forEach(([name, desc]) => lines.push([RX_DATASETS[k].file + ".csv", name, desc].map(csvCell).join(","))));
+  return "\uFEFF" + lines.join("\r\n") + "\r\n";
+}
+function queryJson(keys) {
+  const r = rx.result, sel = r.sel;
+  return JSON.stringify({
+    tool: "Campus Sentinel research export",
+    pulled_at: r.pulledAt,
+    data_source: r.local ? "local session (not the database)" : "Cloud Firestore",
+    date_range: { from: sel.from, to: sel.to,
+      dates_mean: "onset date (symptom reports), sample date (wastewater, lineages), local post date (social, news)" },
+    syndromes: r.allSyn ? "all" : [...sel.syn].map(id => ({ id, name: synName(id) })),
+    places: r.allPlaces ? "all" : [...sel.ids].map(id => ({ id, name: residenceName[id] })),
+    sources: [...sel.sources],
+    included_example_data: sel.includeDemo,
+    wastewater_targets_included: r.targets,
+    row_counts: Object.fromEntries(keys.map(k => [RX_DATASETS[k].file + ".csv", r[k].length])),
+    left_out: { wastewater_unlisted_site_or_target: r.skipped.wastewater, lineages_unlisted_site: r.skipped.genomics },
+    method_notes: [
+      "Syndromes and pathogen categories are assigned by the app's rule-based classifier (see the Method tab). They are not diagnoses.",
+      "Symptom reports are anonymous self-reports. Social and news rows contain extracted fields only, never the original text.",
+      "Only illness-related social posts and news stories have a syndrome, so only those are exported.",
+      "Wastewater copies_per_l of 0 means not detected; the lab detection limit is not recorded.",
+      "A wastewater site is included when its sewer line covers a selected residence, or covers the whole campus of a selected on-campus residence.",
+    ],
+    thresholds_in_app: { cluster_window_days: WINDOW_DAYS, residence_watch: RESIDENCE_WATCH, residence_alert: RESIDENCE_ALERT, campus_signal: CAMPUS_SIGNAL,
+      wastewater_recent_days: WW_RECENT_DAYS, wastewater_baseline_days: WW_BASE_DAYS, wastewater_elevated_x: WW_WATCH, wastewater_high_x: WW_ALERT },
+  }, null, 2);
+}
+
+function saveBlob(name, blob) {
+  const a = document.createElement("a");
+  a.href = URL.createObjectURL(blob); a.download = name;
+  document.body.appendChild(a); a.click(); a.remove();
+  setTimeout(() => URL.revokeObjectURL(a.href), 5000);
+}
+
+async function downloadResearch(what) {
+  const r = rx.result;
+  if (!r) return;
+  const tag = `campus-sentinel_${r.sel.from}_to_${r.sel.to}`;
+  const keys = RX_USED.filter(k => rxHas(r, k));
+  const csvBlob = text => new Blob([text], { type: "text/csv;charset=utf-8" });
+  if (what === "meta") return saveBlob(tag + "_query.json", new Blob([queryJson(keys)], { type: "application/json" }));
+  if (what === "zip") {
+    if (!window.JSZip) return;
+    const zip = new JSZip();
+    keys.forEach(k => zip.file(RX_DATASETS[k].file + ".csv", toCsv(k, r[k])));
+    zip.file("data_dictionary.csv", dictionaryCsv(keys));
+    zip.file("query.json", queryJson(keys));
+    return saveBlob(tag + ".zip", await zip.generateAsync({ type: "blob" }));
+  }
+  if (RX_DATASETS[what]) saveBlob(`${tag}_${RX_DATASETS[what].file}.csv`, csvBlob(toCsv(what, r[what])));
+}
+
+/* =====================================================================
    7. STARTUP — tabs, then form, then data
    ===================================================================== */
 
-const SUBS = ["overview", "symptoms", "wastewater", "genomics", "social", "demo"];
+const SUBS = ["overview", "symptoms", "wastewater", "genomics", "social", "research", "demo"];
 
 // Switch dashboard sub-tab; also remembered, and reachable by link (e.g. …/#wastewater).
 function showSub(name) {
@@ -2307,6 +2934,7 @@ const wk = mmwrWeek(todayStr());
 $("mmwr").textContent = `MMWR week ${wk.week}, ${wk.year}`;
 
 buildForm();
+buildResearchForm();
 renderRules();
 renderQR();
 renderDashboard();

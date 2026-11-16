@@ -1,122 +1,149 @@
-# Campus Sentinel
+# Campus Sentinel NLP worker
 
-Anonymous symptom reporting and a live cluster dashboard for campus syndromic surveillance. Class project, not an official ASU service.
-
-Built with plain HTML, CSS and JavaScript. Reports are stored in Firebase Cloud Firestore and the site is hosted free on GitHub Pages.
-
-This project and associated documentation was generated with Anthropic’s Claude LLM.
-
-## Files
+Reads text (demo feed posts, news, school notices, social posts, video transcripts), extracts **whether it describes illness, which symptoms, which place and when**, and writes those fields to Firestore. The dashboard turns them into syndromes and pathogen types with the same rules it uses for survey reports.
 
 | File | What it does |
-|---|---|
-| `index.html` | The whole app: survey, dashboard, method page, and all the logic |
-| `firebase-config.js` | Your Firebase project settings (you fill this in) |
-| `firestore.rules` | Database security rules (paste into the Firebase console) |
-| `seed.html` | Loads 38 example reports for demos |
-| `feed.html` | Demo social feed classmates post to during the live demo |
-| `worker/` | Python NLP worker (see `worker/README.md`) |
-| `wastewater-config.js` | Wastewater targets (viruses, bacteria) and sampling sites with map coordinates. Edit to match your facility |
-| `wastewater-import.html` | Signed-in uploaders add wastewater results and SARS-CoV-2 lineage results (CSV), or example data |
-| `manifest.webmanifest`, `icon-*.png` | Make "Add to Home Screen" work like an app |
+| --- | --- |
+| `extract.py` | The extraction: OpenAI with a strict JSON schema, plus a keyword method (fallback and baseline) |
+| `sentinel_worker.py` | Runs it: `live` (demo feed), `rss` (news feeds), `ingest` (a CSV of collected posts), `test` (one sentence) |
+| `news_extract.py` | The news extractor: screens each story for health news first, then disease, place and region |
+| `news_eval.csv` | 28 labeled news stories for `evaluate.py --news` (written by the developer, so scores are optimistic) |
+| `newsfeed.py` | Reads RSS and Atom news feeds (Python standard library only, nothing to install) |
+| `demo-news.xml` | Practice news feed: 12 made-up stories from a made-up outlet, for testing and the demo |
+| `evaluate.py` | Scores an extractor against hand-labeled posts: precision, recall, F1 |
+| `eval_set.csv` | 33 starter labeled posts (written by the developer, so scores on it are optimistic) |
+| `requirements.txt` | Python packages |
 
-## Setup (about 15 minutes)
+## Setup (about 15 minutes, once)
 
-### 1. Create the database (Firebase)
+You need Python 3.10 or newer.
 
-1. Go to <https://console.firebase.google.com> and sign in with a Google account.
-2. Click **Create a project**. Name it `campus-sentinel`. You can turn off Google Analytics.
-3. In the left menu, open **Build → Firestore Database** and click **Create database**.
-   - Pick a location close to Arizona, such as `us-west2 (Los Angeles)`. You can't change this later.
-   - Choose **Start in production mode**.
-4. Open the **Rules** tab. Delete what's there, paste everything from `firestore.rules`, and click **Publish**.
-5. Click the gear icon → **Project settings**. Under **Your apps**, click the web icon `</>`. Name it `sentinel` and skip Firebase Hosting.
-6. Firebase shows a `firebaseConfig` block. Copy its values into `firebase-config.js`, replacing each `PASTE_...` value.
+**1. Install the packages.** In a terminal, inside this `worker` folder:
 
-Firebase's menus change now and then, so the labels may differ slightly.
+```
+pip install -r requirements.txt
+```
 
-### 2. Put the site online (GitHub Pages)
+**2. Get a Firebase service-account key.** The worker writes results with the Firebase Admin SDK, which needs a private key.
 
-1. Create a free account at <https://github.com> if you don't have one.
-2. Click **New repository**. Name it `campus-sentinel`, set it to **Public**, and create it.
-3. Click **uploading an existing file** and drag in every file from this folder, including your edited `firebase-config.js`. Click **Commit changes**.
-4. Go to **Settings → Pages**. Under **Branch**, choose `main` and `/ (root)`, then **Save**.
-5. After a minute or two your site is live at `https://YOUR-USERNAME.github.io/campus-sentinel/`.
+1. Firebase console → gear icon → **Project settings** → **Service accounts** → **Generate new private key**.
+2. Save the file in this folder as `service-account.json`.
+3. **Never upload this file to GitHub.** Anyone with it has full control of your database. The `.gitignore` file in the repository keeps it out of commits, but GitHub's web uploader ignores `.gitignore`, so never drag this file into the browser either.
 
-### 3. Try it
+**3. Set the environment variables.** Do this in the terminal where you'll run the worker.
 
-1. Open `https://YOUR-USERNAME.github.io/campus-sentinel/seed.html` and click **Add 38 example reports**.
-2. Open the main address and go to the **Dashboard** tab. You should see "Live" in the top corner and the example clusters.
-3. On an iPhone: open the site in **Safari** → **Share** → **Add to Home Screen**. It opens full screen with its own icon.
+Mac / Linux:
+```
+export GOOGLE_APPLICATION_CREDENTIALS="$PWD/service-account.json"
+export OPENAI_API_KEY="sk-..."
+export OPENAI_BASE_URL="https://openai.rc.asu.edu/v1"   # ASU's gateway
+export OPENAI_MODEL="gpt-4o-mini"                       # use a name from: python sentinel_worker.py models
+```
 
-## Wastewater surveillance
+Windows (PowerShell):
+```
+$env:GOOGLE_APPLICATION_CREDENTIALS = "$PWD\service-account.json"
+$env:OPENAI_API_KEY = "sk-..."
+$env:OPENAI_BASE_URL = "https://openai.rc.asu.edu/v1"
+$env:OPENAI_MODEL = "gpt-4o-mini"
+```
 
-The dashboard has a **Wastewater signals** panel with a map. For each sampling site and target, it compares the geometric mean of the last 7 days with the 28 days before. A 2x rise is *elevated* and 4x is *high*; a first detection after only non-detects is *elevated*. When a signal has the same syndrome and place as a symptom cluster, the cluster card shows **+ wastewater**. A signal with no matching cluster is a possible early warning.
+Check which model names your key can use, and pick one for `OPENAI_MODEL`:
 
-The map (Leaflet + OpenStreetMap) shows one circle per sampling site, colored by its strongest signal. Tap a circle for details. Site locations are the `lat` and `lng` values in `wastewater-config.js`.
+```
+python sentinel_worker.py models
+```
 
-### More wastewater features
+If the gateway doesn't support strict Structured Outputs, the worker switches to plain JSON mode automatically (it prints a note once); every field is still checked before it's saved.
 
-- **Sparklines:** each row of the wastewater table shows the last 5 weeks of samples (log scale), with the baseline as a dashed line.
-- **Lead time ("Did wastewater see it first?"):** for each symptom cluster with a matching wastewater signal, the days from the wastewater rise (first sample at 2x baseline or more) to the first symptom onset, with a mini timeline. Rising signals with no matching cluster are listed as possible early warnings.
-- **SARS-CoV-2 genomics** (collapsible panel): lineage shares per sample from sequencing (Freyja), as stacked bars per site, plus genetic diversity: the effective number of lineages, e^H, where H is the Shannon index.
-- **At a glance:** a short plain-language summary at the bottom of the dashboard, built by rules from the numbers above it.
+**4. Publish the new `firestore.rules`** in the Firebase console. They add `media_posts` (demo feed) and `media_extracted` (results).
 
-Lineage names shown in color are listed in `WW_LINEAGES` in `wastewater-config.js` (up to 5, in color order); others count as "Other". To load lineage data, use the second section of `wastewater-import.html`: a CSV with `date,site,lineage,abundance` (one row per lineage, abundance as a fraction), or **Add example lineage data**. The example lineage names are real 2025 Pango lineages used for illustration only; they are not current results.
+## Try it
 
-### One-time setup: who can upload lab data
+```
+python sentinel_worker.py test "half my floor at hassy has been throwing up since last night"
+python sentinel_worker.py test "this new track is sick" --keywords
+python evaluate.py              # keyword method
+python evaluate.py --openai     # OpenAI method
+```
 
-Anyone can submit a symptom report, but only listed accounts can add wastewater samples. One fake sample would show a "high" alert on every dashboard.
+## Live demo
 
-1. Firebase console → **Build → Authentication → Get started**.
-2. **Sign-in method** tab → **Google** → **Enable** → choose a support email → **Save**.
-3. **Settings** tab → **Authorized domains** → **Add domain** → your GitHub Pages domain, e.g. `yourname.github.io` (no `https://`, no folder).
-4. In **Firestore Database → Rules**, paste `firestore.rules` (it now covers `reports`, `wastewater` and `lineages`), replace `YOUR-EMAIL@asu.edu` in `isLabUploader()` with the uploader's Google or ASU email (add teammates comma-separated, each in quotes), and click **Publish**. You can leave the placeholder in the GitHub copy so your email isn't public; the console copy is the one that counts.
+1. Before class, start the worker and leave it running:
+   ```
+   python sentinel_worker.py live
+   ```
+2. Put the dashboard on the projector. Classmates scan the **demo feed** QR code and post.
+3. Each post is tagged within a few seconds on the feed ("Detected: vomiting · Hassayampa"), and the **Social & media signals** panel updates. Eight or so stomach-illness posts about one place in 30 minutes produce a **Spike**.
+4. If the OpenAI connection fails, the worker switches to the keyword method on its own and prints a warning. Add `--keywords` to use it from the start.
 
-### Loading data
+Afterwards, clear the demo: Firebase console → Firestore → `media_posts` and `media_extracted` → **⋮ → Delete collection**.
 
-1. Edit `wastewater-config.js` so the sites, coordinates and targets match your facility. The included sites and coordinates are placeholders.
-2. Open `.../wastewater-import.html` and **Sign in with Google**.
-3. Click **Add example wastewater data** and **Add example lineage data** to demo (run `seed.html` too: the examples line up with its Hassayampa and Taylor Place clusters, plus one wastewater-only Salmonella signal at West Valley). For real data, paste or upload a CSV with `date,site,target,copies_per_l,pmmov_copies_per_l`.
-4. Samples already stored (same site, target and date) are skipped, so uploading twice is safe.
-5. Each site and target needs at least 2 samples this week and 2 in the prior four weeks before it shows up.
+## News feeds (RSS)
 
-Wastewater data is public to read: do not upload anything confidential.
+An RSS feed is an XML file a news site keeps updated with its latest stories. Each story is an `<item>` with a `<title>`, `<link>`, `<description>` (short summary), `<pubDate>` and `<guid>` (unique id). The worker reads the headline and summary (plus the start of the article if the summary is short) and saves the result with `source: "news"`.
 
-## Social & media signals (NLP)
+News gets its own extractor (`news_extract.py`), because stories name diseases and places but rarely list symptoms. It screens each story in steps:
 
-The dashboard's **Social & media signals** panel shows illness posts found by natural language processing in a demo social feed (`feed.html`), news, school notices and other sources. A Python worker in the `worker/` folder reads each post with OpenAI (or a keyword method as a fallback), extracts symptoms, place, timing and any named disease, and writes only those fields to Firestore (`media_extracted`). The dashboard labels them with the same syndrome and pathogen rules as survey reports, and marks when symptom reports and wastewater agree. Setup and commands: `worker/README.md`.
+| Field | Values |
+| --- | --- |
+| `health_topic` | `infectious_disease`, `other_health` (heat, overdoses, gambling, cancer...), `not_health` |
+| `report_type` | `cases_or_outbreak`, `exposure_warning`, `advisory_or_prevention`, `research_or_policy`, `past_event`, `none` |
+| `pathogen`, `syndrome` | the disease named, and the illness pattern even with no symptoms (a potluck that sickened 12 = stomach) |
+| `region`, `place` | `asu_campus` (a hall or campus is named), `arizona`, `elsewhere_us`, `outside_us`; a city like "Tempe" is not a campus |
+| `case_count` | the number of sick people, if given |
 
-## Running the live demo
+Only **infectious disease + current cases or an exposure** counts as an illness signal. The log marks each story `SIGNAL`, `health` (health news that isn't a signal) or `skip`.
 
-1. Put the **Dashboard** on the projector. It shows a QR code that opens the survey.
-2. Classmates scan it and submit reports on their phones.
-3. Each report appears on the dashboard within seconds. When three people pick the same residence and similar symptoms, a cluster alert appears.
+```
+py sentinel_worker.py rss demo-news.xml --dry-run       # practice feed, print only (no Firebase needed)
+py sentinel_worker.py rss demo-news.xml                 # practice feed, saved as example data
+py sentinel_worker.py rss demo-news.xml --drip 2        # live demo: one practice story every 2 minutes
+py sentinel_worker.py rss https://www.abc15.com/index.rss --every 30    # a real feed, checked every 30 minutes
+```
 
-Tip: to set off an alert on purpose, ask everyone to pick the same residence hall and tap vomiting and diarrhea.
+- **Which feed?** A station's home feed (like ABC15's `index.rss`) holds a few featured stories that can be weeks old. A Google News search feed is fresher and already focused on illness, for example
+  `https://news.google.com/rss/search?q=(norovirus OR flu OR outbreak OR measles) Arizona when:7d&hl=en-US&gl=US&ceid=US:en`
+  (put the address in quotes in PowerShell). `when:7d` keeps it to the last 7 days.
+- `--max-age 365` also analyzes stories up to a year old. Use it with `--dry-run` to test on older stories; saved stories older than 14 days won't show on the dashboard anyway.
+- You can list several feed addresses after `rss`. Each story is processed **once** (its id comes from the feed's `<guid>`), and stories older than 14 days are skipped.
+- `--every 30` re-checks every 30 minutes and asks the site "anything new since last time?" (ETag / Last-Modified), so an unchanged feed costs almost nothing. Please don't check more often than every 15 minutes.
+- The practice feed is marked as example data, so **Include example data** on the dashboard hides it. Its dates are moved up so the newest story is "now".
+- For illness stories only, the **public headline and link** are saved, so the dashboard can list them under **Social & news → News headlines**. The article text is never stored.
+- News doesn't count toward the social-media spike rule (one story can stand for many people, and outlets repeat each other's stories). It counts as its own source in **Where the signals agree**.
+- Most news names a city, not a campus, so most stories show "Place not named". That is the place check working as intended.
 
-## Before and after the presentation
+## Adding collected data
 
-- The example data uses dates relative to the day you load it, so run `seed.html` on the day of the demo.
-- To clear all reports: Firebase console → Firestore Database → Data → the `reports` collection → **⋮ → Delete collection**.
-- The free Firebase plan allows 50,000 reads and 20,000 writes a day, which is far more than a class demo needs.
+Put posts in a CSV with a header row `source,posted_at,text` (optionally `demo` as true/false):
 
-## Security notes
+```
+source,posted_at,text
+news,2026-10-18T14:05:00Z,"Stomach illness reported at an ASU residence hall"
+reddit,2026-10-18T16:40:00Z,"anyone else at manzy sick? whole floor is coughing"
+```
 
-- The values in `firebase-config.js` are meant to be public. They name your project; they don't grant access.
-- Access is controlled by `firestore.rules`: anyone can read reports and add a well-formed report; only listed, signed-in accounts can add wastewater samples; nobody can edit or delete either from the website.
-- Anyone with the link could still submit fake reports. A real deployment would add sign-in (for example ASU single sign-on) and rate limits.
+`source` is one of: `news`, `school`, `reddit`, `x`, `tiktok`, `youtube`, `journal`, `other`. For video, put the transcript in `text`.
 
-## How the code is organized
+```
+python sentinel_worker.py ingest posts.csv
+```
 
-`index.html` has a numbered script:
+Running the same file twice adds nothing new. **The text and the author are never stored**: only the source type, time and extracted fields, under an id made by hashing the post.
 
-1. **Config**: campuses, residences, symptoms (edit these lists to change the survey)
-2. **Classifier**: symptoms → syndrome, and point-based rules → pathogen category
-3. **Cluster detection**: counts by residence and campus over a 7-day window
-4. **Data storage**: Firebase `add()` to save and `onSnapshot()` for live updates
-5. **Survey form**
-6. **Dashboard rendering**, including a hand-drawn SVG epidemic curve
-7. **Startup**
+## Measuring news accuracy
 
-Only section 4 talks to Firebase. Switching to another database means rewriting just that section.
+```
+py evaluate.py --news            # keyword news screen on news_eval.csv
+py evaluate.py --news --openai   # the model
+```
+
+It scores the health filter (right `health_topic`), the illness signal (precision, recall, F1), the disease named and the place. It does **not** score symptoms. For an honest score, add real headlines to `news_eval.csv` (for example the ABC15 ones from a `--max-age 365` dry run) and label them before running it.
+
+## Measuring accuracy (days 10–11)
+
+`eval_set.csv` was written alongside the keyword list, so the keyword method scores unrealistically well on it. For a fair score:
+
+1. Collect about 200 posts **written by other people**: demo feed posts from a rehearsal, plus real posts from your sources.
+2. Label each one by hand (`is_illness`, `symptoms`, `place`) **before** running the extractor on it.
+3. Run `python evaluate.py yourfile.csv --openai` and `python evaluate.py yourfile.csv`, and compare.

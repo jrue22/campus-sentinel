@@ -100,5 +100,66 @@ service cloud.firestore {
       allow create: if isLabUploader() && validWastewater(request.resource.data);
       allow update, delete: if false;
     }
+
+    // =================================================================
+    // LAB PORTAL (lab.html): private health records, so nothing here is public.
+    //   clinicians   read and write every patient and result
+    //   patients     read only their OWN record and their OWN SIGNED results
+    //                (ownerEmail on the document must equal their verified Google email)
+    //   researchers  read only the de-identified copies (lab_deid)
+    // Keep these email lists the same as LAB_CONFIG in lab-config.js.
+    // Class project: use synthetic data only. Real patient data needs institutional
+    // approval and a HIPAA-covered setup.
+    // =================================================================
+    function signedIn() {
+      return request.auth != null && request.auth.token.email_verified == true;
+    }
+    function isClinician() {
+      return signedIn() && request.auth.token.email in ['YOUR-EMAIL@asu.edu'];
+    }
+    function isResearcher() {
+      return signedIn() && request.auth.token.email in ['YOUR-EMAIL@asu.edu'];
+    }
+    function ownsIt() {
+      return signedIn() && resource.data.ownerEmail == request.auth.token.email;
+    }
+
+    function validLabPatient(d) {
+      return d.keys().hasAll(['code', 'name', 'birthYear', 'residence', 'ownerEmail', 'demo', 'createdAt'])
+        && d.code is string && d.code.size() <= 12
+        && d.name is string && d.name.size() <= 80
+        && d.birthYear is number && d.residence is string && d.residence.size() <= 40
+        && d.ownerEmail is string && d.ownerEmail.size() <= 120
+        && d.demo is bool;
+    }
+    function validLabResult(d) {
+      return d.keys().hasAll(['patientId', 'patientCode', 'ownerEmail', 'kind', 'collected', 'status', 'data', 'provenance', 'demo'])
+        && d.kind in ['pcr', 'culture', 'viral_genome', 'bacterial_genome']
+        && d.status in ['analyzed', 'signed']
+        && d.patientId is string && d.ownerEmail is string
+        && d.collected is string && d.collected.matches('[0-9]{4}-[0-9]{2}-[0-9]{2}')
+        && d.data is map && d.provenance is map && d.demo is bool
+        && (!('history' in d) || (d.history is list && d.history.size() <= 100));
+    }
+
+    match /lab_patients/{patientId} {
+      allow read: if isClinician() || ownsIt();
+      allow create, update: if isClinician() && validLabPatient(request.resource.data);
+      allow delete: if isClinician() && resource.data.demo == true;
+    }
+
+    match /lab_results/{resultId} {
+      allow read: if isClinician() || (ownsIt() && resource.data.status == 'signed');
+      allow create, update: if isClinician() && validLabResult(request.resource.data);
+      allow delete: if isClinician() && resource.data.demo == true;
+    }
+
+    // De-identified copies, written when a clinician signs a result.
+    match /lab_deid/{id} {
+      allow read: if isClinician() || isResearcher();
+      allow create, update: if isClinician() && !('ownerEmail' in request.resource.data)
+        && !('patientId' in request.resource.data) && !('name' in request.resource.data);
+      allow delete: if isClinician() && resource.data.demo == true;
+    }
   }
 }
